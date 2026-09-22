@@ -12,6 +12,37 @@ $("#btn-salir").addEventListener("click", async () => {
   location.replace("/");
 });
 
+// Sólo cuentas con plan vigente crean sala (consume minutos de LiveKit). El
+// resto puede unirse a salas de otros y usar pizarra/presentaciones gratis.
+{
+  const { data: autorizado, error } = await sb.rpc("puede_crear_sala");
+  if (error || !autorizado) {
+    $("#paso-crear").classList.add("oculto");
+    $("#paso-no-autorizado").classList.remove("oculto");
+    $("#no-autorizado-correo").textContent = user.email || "tu cuenta";
+
+    // Pinta los planes que hay en la base para que el usuario contrate.
+    const { data: planes } = await sb
+      .from("planes")
+      .select("slug,nombre,precio_usd,minutos_participante_mes")
+      .order("orden");
+    const cont = $("#planes-lista");
+    for (const p of planes || []) {
+      const horasAprox = Math.round(p.minutos_participante_mes / 20 / 60);
+      const tarjeta = document.createElement("div");
+      tarjeta.className = "codigo-caja";
+      tarjeta.innerHTML = `
+        <div style="min-width:0">
+          <div style="font-weight:600; font-size:17px">${p.nombre} — $${p.precio_usd}/mes</div>
+          <div class="pista" style="margin-top:4px">Hasta <strong>${p.minutos_participante_mes.toLocaleString("es-MX")}</strong> minutos-participante al mes (≈ ${horasAprox} h de clase con 20 personas).</div>
+        </div>
+        <a href="/api/checkout?plan=${p.slug}" class="btn btn-primario" style="flex-shrink:0" data-plan="${p.slug}">Contratar</a>
+      `;
+      cont.appendChild(tarjeta);
+    }
+  }
+}
+
 // Genera un código corto legible: 8 caracteres sin ambigüedades (sin 0/O/1/I).
 function codigoCorto() {
   const abc = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
