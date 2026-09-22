@@ -22,12 +22,7 @@
     <section class="tarjeta oculto" id="paso-eleccion">
       <p class="etiqueta">Sala</p>
       <h1 id="sala-nombre">…</h1>
-      <p class="pista">Elige cómo quieres entrar. Si el dirigente te pasó un código, eres <strong>alumno</strong> (puedes hablar). Si no, entras como <strong>invitado</strong> y sólo ves y escuchas.</p>
-
-      <label class="campo" id="campo-nombre-vis">
-        <span>Cómo quieres que te vean</span>
-        <input id="nombre" type="text" required maxlength="60" placeholder="Tu nombre">
-      </label>
+      <p class="pista">Vas a entrar como <strong id="nombre-vis">…</strong>. Elige tu rol: con <strong>código</strong> eres alumno (puedes hablar); sin él, invitado (sólo ves y escuchas).</p>
 
       <div class="stack">
         <button class="btn btn-primario" type="button" id="btn-invitado">Entrar como invitado</button>
@@ -46,9 +41,6 @@
       </div>
 
       <p id="mensaje" class="mensaje oculto" style="margin-top:12px"></p>
-      <p class="pista" style="margin-top:14px">
-        ¿Tienes cuenta? <a href="/entrar">Inicia sesión</a> para que te recuerde entre clases.
-      </p>
     </section>
 
     <!-- Paso 0: sin código de sala aún (el usuario llegó a /unirse sin pegar nada) -->

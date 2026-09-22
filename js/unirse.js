@@ -1,15 +1,14 @@
 // Unirse a una sala.
 //
-// Todos llegan por el mismo enlace público: connectalive.smrt-app.org/s/CODIGO.
-// El CODIGO en el enlace es el "código de la sala" — sólo sirve para saber a
-// qué sala vas y mostrarle al usuario su nombre. El rol se decide después:
+// TODOS los participantes están autenticados con correo/contraseña (mismo
+// patrón que Vitalia). El enlace `/s/CODIGO` te lleva a la sala; el "código
+// de alumno" que sólo el dirigente reparte te sube a rol alumno:
 //
-//   • "Entrar como invitado" → rol OYENTE (ver y escuchar).
-//   • Escribir el "código de alumno" que sólo el dirigente reparte
-//     → rol ALUMNO (habla, comparte, interactúa).
+//   • Entrar sin código                 → rol OYENTE (ver y escuchar).
+//   • Entrar con código de alumno       → rol ALUMNO (habla, interactúa).
 //
-// Si el dirigente cerró la sala a oyentes (checkbox al crear), la opción de
-// invitado no aparece: sólo entran quienes tienen el código de alumno.
+// Si no hay sesión, esta pantalla manda a /entrar?volver=<url actual>,
+// y al volver ya se muestra la elección de rol.
 
 import { sb } from "./supabase.js";
 import { currentUser, nombreDe } from "./auth.js";
@@ -59,19 +58,22 @@ function extraerCodigoDeEntrada(texto) {
   return t.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
 }
 
-async function prepararEleccion() {
-  $("#sala-nombre").textContent = sala.nombre;
+function irALogin() {
+  const volver = encodeURIComponent(location.pathname + location.search);
+  location.replace(`/entrar?volver=${volver}`);
+}
 
-  // Si ya hay sesión, no pedimos nombre.
+async function prepararEleccion() {
+  // Sin sesión, no hay elección: al login.
   const u = await currentUser();
-  if (u) {
-    $("#campo-nombre-vis").classList.add("oculto");
-  }
+  if (!u) return irALogin();
+
+  $("#sala-nombre").textContent = sala.nombre;
+  $("#nombre-vis").textContent = nombreDe(u);
 
   // Si la sala está cerrada a oyentes, ocultar el botón de invitado.
   if (!sala.abierta_a_oyentes) {
     $("#btn-invitado").classList.add("oculto");
-    // Y abrir de una el acordeón del código.
     $("#det-codigo").setAttribute("open", "");
     const nota = document.createElement("p");
     nota.className = "pista";
@@ -82,24 +84,13 @@ async function prepararEleccion() {
   mostrar("paso-eleccion");
 }
 
-async function asegurarSesion(nombreTecleado) {
-  let u = await currentUser();
-  if (u) return u;
-  if (!nombreTecleado) throw new Error("Escribe tu nombre para entrar.");
-  const { data, error: err } = await sb.auth.signInAnonymously({
-    options: { data: { nombre_mostrar: nombreTecleado } },
-  });
-  if (err) throw new Error("No fue posible entrar sin cuenta: " + err.message);
-  return data.user;
-}
-
 async function entrarConRol(rol) {
   const msg = $("#mensaje");
   msg.classList.add("oculto");
-  const nombreTecleado = $("#nombre").value.trim();
 
   try {
-    const user = await asegurarSesion(nombreTecleado);
+    const user = await currentUser();
+    if (!user) return irALogin();
 
     // Rejoin: si ya estabas en la sala, respeta tu rol previo (a menos que
     // ahora te promuevas de oyente → alumno con el código correcto).
@@ -124,7 +115,7 @@ async function entrarConRol(rol) {
       const { error: e3 } = await sb.from("participantes").insert({
         sala_id: sala.id,
         user_id: user.id,
-        nombre_mostrar: nombreDe(user) || nombreTecleado,
+        nombre_mostrar: nombreDe(user),
         rol,
       });
       if (e3) throw e3;

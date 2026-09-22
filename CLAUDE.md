@@ -28,18 +28,27 @@ archivos— llega primero al dirigente y él decide a quién le llega.
   Y una para el back-office desde funciones:
   - `SUPABASE_SERVICE_ROLE_KEY` (solo servidor, jamás en el navegador)
 
-## Pasos que hay que hacer una sola vez en el panel
+## Autenticación
 
-1. **Supabase → Settings → API → Exposed schemas**: agregar
-   `connectalive` a la lista (además del `public` que ya está). Sin esto,
-   `@supabase/supabase-js` no ve las tablas nuevas aunque los `grant` estén
-   dados.
-2. **Supabase → Storage**: crear bucket `connectalive`, privado. Sin
-   políticas iniciales; los archivos se firman con el token del usuario y
-   el dirigente los autoriza en la tabla `archivos`.
-3. **Netlify → Site → Domain**: agregar `connectalive.smrt-app.org` y en
-   Namecheap dejar el CNAME apuntando al sitio (ver la nota transversal
-   `smrt-app-org-subdominios`).
+**Todos los participantes se autentican con correo/contraseña**, mismo
+patrón que Vitalia. No hay ruta de invitado anónimo. La regla vive donde
+Juan la pidió: cualquiera con el link puede *intentar* entrar a una sala,
+pero primero tiene que loguearse; el "código de alumno" que sólo el
+dirigente reparte es lo que sube el rol de oyente → alumno. Si un colado
+consigue el código, el dirigente lo baja a oyente desde la lista de gente.
+
+## Pasos que hay que hacer una sola vez
+
+1. ~~Exposed schemas~~ — hecho por migración
+   (`ALTER ROLE authenticator SET pgrst.db_schemas` incluye `connectalive`).
+2. ~~Bucket Storage `connectalive`~~ — creado con SQL con políticas por
+   sala (leer/subir para participantes; borrar para el dirigente).
+3. **Netlify** (falta): importar el repo `jasso8990/connectalive` como
+   sitio nuevo y agregar `connectalive.smrt-app.org` en Domain management.
+   En Namecheap, CNAME `connectalive → <site>.netlify.app`.
+4. **LiveKit Cloud** (falta): crear cuenta gratis, meter las 3 variables
+   (`LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`) más
+   `SUPABASE_SERVICE_ROLE_KEY` en Netlify → Site → Environment variables.
 
 ## Cómo funcionan los roles (esto es lo que hace la app)
 
