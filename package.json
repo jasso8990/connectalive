@@ -1,19 +1,10 @@
 {
-  "name": "pizarra-en-vivo",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "devDependencies": {
-    "vite": "^8.3.0"
+  "name": "connectalive",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Videollamada tipo clase/taller con roles: dirigente, alumno, oyente. Front en HTML/JS plano; LiveKit para audio/video/pantalla; Supabase para auth, salas y estado; Netlify Functions para emitir tokens y mover permisos.",
+  "type": "module",
+  "dependencies": {
+    "livekit-server-sdk": "^2.9.6"
   }
 }

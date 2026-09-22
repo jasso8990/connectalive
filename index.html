@@ -1,13 +1,68 @@
 <!doctype html>
 <html lang="es">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0b1020" />
-    <title>Pizarra en Vivo</title>
-  </head>
-  <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.js"></script>
-  </body>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connectalive — Entrar</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <link rel="icon" href="/assets/icono.png" type="image/png">
+  <link rel="apple-touch-icon" href="/assets/icono.png">
+  <meta name="theme-color" content="#0f172a">
+</head>
+<body class="pantalla-luz">
+  <main class="portada">
+    <img src="/assets/logo.png" alt="Connectalive" class="logo-portada">
+    <p class="pista" style="text-align:center; margin-top:-4px">Clase o taller en vivo. Un dirigente conduce, los alumnos hablan, los oyentes escuchan.</p>
+
+    <section class="tarjeta">
+      <h1>Entrar a tu cuenta</h1>
+      <p class="pista">Inicia sesión para <strong>crear salas</strong> o llevar registro de tus clases.</p>
+
+      <form id="form-login" class="stack">
+        <label class="campo">
+          <span>Correo</span>
+          <input id="email" type="email" autocomplete="username" required placeholder="tucorreo@ejemplo.com">
+        </label>
+        <label class="campo">
+          <span>Contraseña</span>
+          <input id="password" type="password" autocomplete="current-password" required placeholder="Tu contraseña">
+        </label>
+        <button class="btn btn-primario" type="submit" id="btn-entrar">Entrar</button>
+        <p id="mensaje" class="mensaje oculto"></p>
+      </form>
+
+      <details class="acordeón">
+        <summary>¿Todavía no tienes cuenta?</summary>
+        <form id="form-registro" class="stack" style="margin-top:12px">
+          <label class="campo">
+            <span>Nombre para mostrar</span>
+            <input id="reg-nombre" type="text" autocomplete="name" required placeholder="Cómo te llaman">
+          </label>
+          <label class="campo">
+            <span>Correo</span>
+            <input id="reg-email" type="email" autocomplete="email" required>
+          </label>
+          <label class="campo">
+            <span>Contraseña</span>
+            <input id="reg-password" type="password" autocomplete="new-password" minlength="6" required>
+          </label>
+          <button class="btn btn-secundario" type="submit" id="btn-registro">Crear cuenta</button>
+          <p id="mensaje-reg" class="mensaje oculto"></p>
+        </form>
+      </details>
+    </section>
+
+    <section class="tarjeta tarjeta-secundaria">
+      <h2>¿Ya te pasaron un enlace o código?</h2>
+      <form id="form-codigo" class="linea">
+        <input id="codigo" type="text" required placeholder="ABCD1234 o el enlace" autocomplete="off"
+               maxlength="120" inputmode="latin">
+        <button class="btn btn-primario" type="submit">Entrar a la sala</button>
+      </form>
+      <p class="pista">Puedes entrar sin cuenta — al llegar te preguntamos si eres alumno u oyente.</p>
+    </section>
+  </main>
+
+  <script type="module" src="/js/index.js"></script>
+</body>
 </html>

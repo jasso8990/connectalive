@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connectalive — Sala</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <link rel="icon" href="/assets/icono.png" type="image/png">
+  <link rel="apple-touch-icon" href="/assets/icono.png">
+  <meta name="theme-color" content="#0f172a">
+</head>
+<body class="pantalla-sala">
+  <header class="sala-top">
+    <div style="display:flex; align-items:center; gap:12px">
+      <img src="/assets/icono.png" alt="" class="marca-icono" style="width:36px; height:36px; border-radius:9px">
+      <div>
+        <div class="etiqueta">Sala</div>
+        <h1 id="sala-nombre">…</h1>
+      </div>
+    </div>
+    <div class="sala-top-derecha">
+      <span id="sala-codigo" class="chip"></span>
+      <span id="mi-rol" class="chip chip-rol">…</span>
+      <button id="btn-salir" class="btn btn-lineal" type="button">Salir</button>
+    </div>
+  </header>
+
+  <main class="sala-cuerpo">
+    <!-- Pantalla principal. Cuando la pizarra está abierta, ocupa todo y
+         los videos se van a la mini-tira lateral. -->
+    <section class="tarima" id="tarima">
+      <div class="tarima-vacia">Esperando al dirigente…</div>
+    </section>
+
+    <!-- Pizarra colaborativa. Empieza oculta; se abre desde la barra de
+         controles (botón "Pizarra"). Cuando está abierta, los videos siguen
+         viéndose en una tira compacta (#tira-videos). -->
+    <section class="pizarra oculto" id="pizarra">
+      <div class="pizarra-lienzo">
+        <canvas id="pz-canvas" width="1600" height="900"></canvas>
+        <button type="button" id="pz-fullscreen" class="btn-flotante" title="Pantalla completa" aria-label="Pantalla completa">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8V5a2 2 0 0 1 2-2h3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M21 16v3a2 2 0 0 1-2 2h-3"/></svg>
+        </button>
+      </div>
+      <div class="pizarra-toolbar oculto" id="pz-toolbar">
+        <label class="pz-campo"><span>Color</span><input type="color" id="pz-color" value="#111827"></label>
+        <label class="pz-campo"><span>Grosor</span><input type="range" id="pz-grosor" min="1" max="24" value="5"></label>
+        <button type="button" id="pz-borrar" class="btn btn-secundario">Borrar pizarra</button>
+        <span class="pz-estado" id="pz-estado-control">Tú controlas</span>
+      </div>
+      <div class="tira-videos" id="tira-videos"></div>
+    </section>
+
+    <!-- Diapositivas (PDF). Se abre desde el botón "Diapositivas" en la barra
+         de controles. Layout gemelo a la pizarra: lienzo grande, toolbar
+         inferior con paginación y quien presenta. -->
+    <section class="diapositivas oculto" id="diapositivas">
+      <div class="diapo-lienzo">
+        <canvas id="dp-canvas"></canvas>
+        <button type="button" id="dp-fullscreen" class="btn-flotante" title="Pantalla completa" aria-label="Pantalla completa">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8V5a2 2 0 0 1 2-2h3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M21 16v3a2 2 0 0 1-2 2h-3"/></svg>
+        </button>
+        <div class="diapo-vacio oculto" id="dp-vacio">
+          <p>Sube un PDF para empezar la presentación.</p>
+          <label for="dp-input" class="btn btn-primario" id="dp-btn-subir">Subir PDF</label>
+          <input type="file" id="dp-input" accept="application/pdf" hidden>
+        </div>
+      </div>
+      <div class="diapo-toolbar" id="dp-toolbar">
+        <button type="button" id="dp-anterior" class="btn btn-secundario" aria-label="Anterior">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <span class="dp-pagina" id="dp-pagina">— / —</span>
+        <button type="button" id="dp-siguiente" class="btn btn-secundario" aria-label="Siguiente">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+        <span class="dp-nombre" id="dp-nombre"></span>
+        <span class="dp-estado" id="dp-estado">—</span>
+        <button type="button" id="dp-cerrar" class="btn btn-lineal" style="margin-left:auto">Cerrar presentación</button>
+      </div>
+      <div class="tira-videos" id="tira-videos-dp"></div>
+    </section>
+
+    <!-- Panel lateral: participantes, mano alzada, archivos, compartir -->
+    <aside class="panel-lateral">
+      <nav class="panel-tabs" role="tablist">
+        <button class="tab activo" data-tab="gente" role="tab">Gente</button>
+        <button class="tab" data-tab="solicitudes" role="tab">
+          Peticiones <span id="badge-sol" class="badge oculto">0</span>
+        </button>
+        <button class="tab" data-tab="archivos" role="tab">Archivos</button>
+      </nav>
+
+      <div class="tab-contenido activo" data-tab="gente">
+        <div class="grupo">
+          <h3>Dirigente</h3>
+          <ul id="lista-dirigente" class="lista-gente"></ul>
+        </div>
+        <div class="grupo">
+          <h3>Alumnos <span id="conteo-alumnos" class="contador">(0)</span></h3>
+          <ul id="lista-alumnos" class="lista-gente"></ul>
+        </div>
+        <div class="grupo">
+          <h3>Oyentes <span id="conteo-oyentes" class="contador">(0)</span></h3>
+          <ul id="lista-oyentes" class="lista-gente"></ul>
+        </div>
+      </div>
+
+      <div class="tab-contenido" data-tab="solicitudes">
+        <p id="sol-vacio" class="pista">Nadie ha levantado la mano.</p>
+        <ul id="lista-solicitudes" class="lista-solicitudes"></ul>
+      </div>
+
+      <div class="tab-contenido" data-tab="archivos">
+        <div id="zona-subir">
+          <label for="input-archivo" class="btn btn-secundario" style="display:inline-block">Subir archivo</label>
+          <input id="input-archivo" type="file" hidden>
+          <p class="pista" id="zona-subir-pista">
+            Se manda al dirigente. Él decide a quién le llega.
+          </p>
+        </div>
+        <ul id="lista-archivos" class="lista-archivos"></ul>
+      </div>
+    </aside>
+  </main>
+
+  <!-- Barra inferior de controles. Iconos estilo Lucide (line, 24px, 1.75 stroke). -->
+  <footer class="controles">
+    <button id="btn-mic" class="btn-icono" title="Micrófono" data-estado="off" aria-label="Micrófono">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+    </button>
+    <button id="btn-cam" class="btn-icono" title="Cámara" data-estado="off" aria-label="Cámara">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 8-6 4 6 4V8Z"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg>
+    </button>
+    <button id="btn-pantalla" class="btn-icono" title="Compartir pantalla" aria-label="Compartir pantalla">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 13V3"/><path d="m8 7 4-4 4 4"/><rect x="2" y="13" width="20" height="8" rx="2"/></svg>
+    </button>
+    <button id="btn-pizarra" class="btn-icono" title="Pizarra" aria-label="Pizarra">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/><path d="m7 12 3-3 2 2 4-4"/></svg>
+    </button>
+    <button id="btn-diapositivas" class="btn-icono" title="Diapositivas" aria-label="Diapositivas">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><line x1="8" y1="20" x2="16" y2="20"/><line x1="12" y1="16" x2="12" y2="20"/><polyline points="9 10 11 12 15 8"/></svg>
+    </button>
+    <button id="btn-mano" class="btn-icono destacado" title="Levantar la mano" aria-label="Levantar la mano">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 11V6a2 2 0 0 0-4 0"/><path d="M14 10V4a2 2 0 0 0-4 0v6"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>
+    </button>
+  </footer>
+
+  <!-- Diálogo del dirigente para elegir destinatarios de un archivo -->
+  <dialog id="dlg-destinatarios">
+    <form method="dialog" class="stack">
+      <h3>¿A quién le llega este archivo?</h3>
+      <p id="dlg-archivo-nombre" class="pista"></p>
+      <label class="check">
+        <input type="radio" name="dest" value="solo_dirigente" checked>
+        <span>Sólo a mí (revisar antes de compartir)</span>
+      </label>
+      <label class="check">
+        <input type="radio" name="dest" value="alumnos">
+        <span>Alumnos y a mí</span>
+      </label>
+      <label class="check">
+        <input type="radio" name="dest" value="todos">
+        <span>Todos (alumnos y oyentes)</span>
+      </label>
+      <menu class="acciones">
+        <button value="cancel">Cancelar</button>
+        <button value="ok" class="btn btn-primario">Autorizar</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <script type="module" src="/js/sala.js"></script>
+</body>
+</html>

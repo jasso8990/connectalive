@@ -1,0 +1,61 @@
+[build]
+  publish = "."
+  command = ""
+
+[functions]
+  # Las funciones serverless viven en netlify/functions/.
+  # node_bundler = "esbuild" para que `import`/`export` funcione tal cual.
+  node_bundler = "esbuild"
+  external_node_modules = ["livekit-server-sdk"]
+
+# --- Rutas limpias ---
+[[redirects]]
+  from = "/entrar"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/crear"
+  to = "/crear.html"
+  status = 200
+
+[[redirects]]
+  from = "/unirse"
+  to = "/unirse.html"
+  status = 200
+
+# El código y las migraciones NO se sirven como página. Netlify publica la
+# carpeta entera; sin esto cualquiera podría bajar supabase/migrations/*.sql y
+# ver el mapa de las políticas RLS. No hay llaves adentro, pero no se regala.
+[[redirects]]
+  from = "/supabase/*"
+  to = "/index.html"
+  status = 404
+  force = true
+
+[[redirects]]
+  from = "/netlify/*"
+  to = "/index.html"
+  status = 404
+  force = true
+
+# Ruta corta para unirse con código: /s/ABCD1234 → sala con código precargado
+[[redirects]]
+  from = "/s/:codigo"
+  to = "/unirse.html"
+  status = 200
+
+# Sala en vivo por id: /sala/<uuid>
+[[redirects]]
+  from = "/sala/:id"
+  to = "/sala.html"
+  status = 200
+
+# --- Headers ---
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(self), microphone=(self), display-capture=(self)"

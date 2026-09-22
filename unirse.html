@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connectalive — Entrar a la sala</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <link rel="icon" href="/assets/icono.png" type="image/png">
+  <link rel="apple-touch-icon" href="/assets/icono.png">
+  <meta name="theme-color" content="#0f172a">
+</head>
+<body class="pantalla-luz">
+  <main class="portada">
+    <header class="marca">
+      <a href="/" class="marca-link">
+        <img src="/assets/icono.png" alt="" class="marca-icono">
+        <span class="marca-nombre">Connectalive</span>
+      </a>
+    </header>
+
+    <!-- Paso 1: sala encontrada — pregunta si tiene código o entra como invitado -->
+    <section class="tarjeta oculto" id="paso-eleccion">
+      <p class="etiqueta">Sala</p>
+      <h1 id="sala-nombre">…</h1>
+      <p class="pista">Elige cómo quieres entrar. Si el dirigente te pasó un código, eres <strong>alumno</strong> (puedes hablar). Si no, entras como <strong>invitado</strong> y sólo ves y escuchas.</p>
+
+      <label class="campo" id="campo-nombre-vis">
+        <span>Cómo quieres que te vean</span>
+        <input id="nombre" type="text" required maxlength="60" placeholder="Tu nombre">
+      </label>
+
+      <div class="stack">
+        <button class="btn btn-primario" type="button" id="btn-invitado">Entrar como invitado</button>
+
+        <details class="acordeón" id="det-codigo">
+          <summary>Tengo código de alumno</summary>
+          <div class="stack" style="margin-top:12px">
+            <label class="campo">
+              <span>Código de alumno</span>
+              <input id="codigo-alumno" type="text" maxlength="12"
+                     inputmode="latin" style="text-transform:uppercase" placeholder="M9V2K4TN" autocomplete="off">
+            </label>
+            <button class="btn btn-primario" type="button" id="btn-alumno">Entrar como alumno</button>
+          </div>
+        </details>
+      </div>
+
+      <p id="mensaje" class="mensaje oculto" style="margin-top:12px"></p>
+      <p class="pista" style="margin-top:14px">
+        ¿Tienes cuenta? <a href="/entrar">Inicia sesión</a> para que te recuerde entre clases.
+      </p>
+    </section>
+
+    <!-- Paso 0: sin código de sala aún (el usuario llegó a /unirse sin pegar nada) -->
+    <section class="tarjeta oculto" id="paso-codigo-sala">
+      <h1>¿A qué sala vas?</h1>
+      <p class="pista">Pega el enlace de la clase o el código que te pasaron.</p>
+      <form id="form-buscar" class="stack">
+        <label class="campo">
+          <span>Enlace o código</span>
+          <input id="entrada-sala" type="text" required autocomplete="off" placeholder="connectalive.smrt-app.org/s/XKPQ7RM3">
+        </label>
+        <button class="btn btn-primario" type="submit">Buscar sala</button>
+      </form>
+      <p id="mensaje-buscar" class="mensaje oculto" style="margin-top:10px"></p>
+    </section>
+
+    <section class="tarjeta oculto" id="paso-cargando">
+      <p class="pista">Buscando la sala…</p>
+    </section>
+  </main>
+
+  <script type="module" src="/js/unirse.js"></script>
+</body>
+</html>
