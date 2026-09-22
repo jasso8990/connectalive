@@ -107,9 +107,15 @@ separan por esquema — antes de desplegar cualquier función aquí,
 **Secrets** que las Edge Functions leen de Supabase → Project Settings →
 Edge Functions → Secrets:
 
-- `STRIPE_SECRET_KEY` (Juan ya lo puso)
-- `STRIPE_PRICE_CLASE`, `STRIPE_PRICE_GRUPO`, `STRIPE_PRICE_ESCUELA`
-  (los 3 price_id de la cuenta de Stripe; Juan ya los puso)
+- `STRIPE_SECRET_KEY`
+- `Connect_Price_Basico` → slug interno `clase` ($4.99)
+- `Connect_Price_Premium` → slug interno `grupo` ($19.99)
+- `Connect_Price_Profecional` → slug interno `escuela` ($49.99)
+
+Ojo: los nombres de secrets NO son los slugs — son los nombres literales
+que Juan usó al crear los productos en Stripe (con la 'c' de "Profecional"
+adrede para que empate con el secret). El mapeo vive en las dos Edge
+Functions; si Juan agrega un plan nuevo hay que tocar ambos archivos.
 - `CL_APP_ORIGEN` opcional — el fallback ya apunta a
   `connectalive.smrt-app.org`. La función también acepta el origen del
   request si viene de `connectalive.smrt-app.org` o

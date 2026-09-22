@@ -10,7 +10,9 @@
    con `?stripe=ok`. Menos partes móviles.
 
    Precios detectados desde estos secrets (misma tabla que crear-checkout):
-     STRIPE_PRICE_CLASE / STRIPE_PRICE_GRUPO / STRIPE_PRICE_ESCUELA
+     Connect_Price_Basico     → slug 'clase'   ($4.99)
+     Connect_Price_Premium    → slug 'grupo'   ($19.99)
+     Connect_Price_Profecional → slug 'escuela' ($49.99)
 ============================================================ */
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -24,9 +26,9 @@ const responde = (c: unknown, s = 200) =>
 
 function planDePrice(price?: string): string | null {
   if (!price) return null;
-  if (price === Deno.env.get("STRIPE_PRICE_CLASE"))   return "clase";
-  if (price === Deno.env.get("STRIPE_PRICE_GRUPO"))   return "grupo";
-  if (price === Deno.env.get("STRIPE_PRICE_ESCUELA")) return "escuela";
+  if (price === Deno.env.get("Connect_Price_Basico"))     return "clase";
+  if (price === Deno.env.get("Connect_Price_Premium"))    return "grupo";
+  if (price === Deno.env.get("Connect_Price_Profecional")) return "escuela";
   return null;
 }
 

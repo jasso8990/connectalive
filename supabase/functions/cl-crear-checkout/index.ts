@@ -9,10 +9,13 @@
 
    Secretos que TIENE QUE tener el proyecto (Supabase → Project Settings →
    Edge Functions → Secrets):
-     STRIPE_SECRET_KEY      sk_/rk_test_... o sk_/rk_live_...
-     STRIPE_PRICE_CLASE     price_id del plan $4.99  USD/mes
-     STRIPE_PRICE_GRUPO     price_id del plan $19.99 USD/mes
-     STRIPE_PRICE_ESCUELA   price_id del plan $49.99 USD/mes
+     STRIPE_SECRET_KEY          sk_/rk_test_... o sk_/rk_live_...
+     Connect_Price_Basico       price_id del plan $4.99  (slug 'clase')
+     Connect_Price_Premium      price_id del plan $19.99 (slug 'grupo')
+     Connect_Price_Profecional  price_id del plan $49.99 (slug 'escuela')
+
+   Los slugs internos (clase/grupo/escuela) NO cambian: los nombres raros
+   son sólo los que Juan usó al crear los productos en Stripe.
 
    ⚠️  EL NOMBRE LLEVA `cl-` A PROPÓSITO. Las Edge Functions NO se separan
    por esquema: el slug es único para TODO el proyecto de Supabase, y este
@@ -35,9 +38,9 @@ function responde(cuerpo: unknown, status = 200) {
 }
 
 const PRECIOS: Record<string, string | undefined> = {
-  clase:   Deno.env.get("STRIPE_PRICE_CLASE"),
-  grupo:   Deno.env.get("STRIPE_PRICE_GRUPO"),
-  escuela: Deno.env.get("STRIPE_PRICE_ESCUELA"),
+  clase:   Deno.env.get("Connect_Price_Basico"),
+  grupo:   Deno.env.get("Connect_Price_Premium"),
+  escuela: Deno.env.get("Connect_Price_Profecional"),
 };
 
 // Fallback si el request no trae origen legible.
