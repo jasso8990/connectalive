@@ -6,7 +6,7 @@
   # Las funciones serverless viven en netlify/functions/.
   # node_bundler = "esbuild" para que `import`/`export` funcione tal cual.
   node_bundler = "esbuild"
-  external_node_modules = ["livekit-server-sdk"]
+  external_node_modules = ["livekit-server-sdk", "@supabase/supabase-js"]
 
 # --- Rutas limpias ---
 [[redirects]]
