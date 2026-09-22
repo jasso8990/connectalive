@@ -50,21 +50,30 @@
 
     <section class="tarjeta oculto" id="paso-lista">
       <h1>Sala lista</h1>
-      <p class="pista">Comparte el <strong>enlace de la clase</strong> con todos. Al abrirlo, la app les pregunta si tienen código: con código entran como <strong>alumnos</strong>, sin código entran como <strong>oyentes</strong>.</p>
+      <p class="pista">Tienes <strong>dos enlaces</strong>: el público (entra como oyente) y el de alumnos (entra directo, sin escribir código).</p>
 
       <div class="codigo-caja">
         <div style="min-width:0">
-          <span class="etiqueta">Enlace de la clase (para todos)</span>
+          <span class="etiqueta">Enlace público (entra como oyente)</span>
           <div id="enlace-mostrar" style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size:15px; margin-top:4px; overflow-wrap:anywhere"></div>
         </div>
         <button id="btn-copiar-enlace" class="btn btn-primario" type="button" style="flex-shrink:0">Copiar</button>
       </div>
 
       <div class="codigo-caja" style="margin-top:14px">
+        <div style="min-width:0">
+          <span class="etiqueta">Enlace de <strong>alumnos</strong> (entra directo con voz)</span>
+          <div id="enlace-alumnos-mostrar" style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size:15px; margin-top:4px; overflow-wrap:anywhere"></div>
+          <p class="pista" style="margin:6px 0 0">Pásaselo sólo a quienes van a hablar. Al abrirlo, entran como alumnos sin escribir código.</p>
+        </div>
+        <button id="btn-copiar-enlace-alumnos" class="btn btn-primario" type="button" style="flex-shrink:0">Copiar</button>
+      </div>
+
+      <div class="codigo-caja" style="margin-top:14px">
         <div>
-          <span class="etiqueta">Código para <strong>alumnos</strong> (privado)</span>
+          <span class="etiqueta">O código escrito para <strong>alumnos</strong></span>
           <div class="codigo-grande" id="codigo-alumnos-mostrar">— — — —</div>
-          <p class="pista" style="margin:6px 0 0">Pásaselo sólo a quienes van a hablar. Lo escriben al entrar.</p>
+          <p class="pista" style="margin:6px 0 0">Por si prefieres dictarlo. Se escribe al entrar por el enlace público.</p>
         </div>
         <button id="btn-copiar-codigo" class="btn btn-secundario" type="button" style="flex-shrink:0">Copiar código</button>
       </div>

@@ -134,13 +134,16 @@ $("#form-crear").addEventListener("submit", async (e) => {
       });
     if (errP && errP.code !== "23505") throw errP;
 
-    // Un enlace público (con el código de sala) + un código privado de alumnos.
+    // Dos enlaces + el código escrito: el público entra como oyente; el de
+    // alumnos trae ?a=<codigo_alumnos> y al abrirlo entra directo con voz.
     $("#paso-crear").classList.add("oculto");
     $("#paso-lista").classList.remove("oculto");
 
     const formato = (c) => c.replace(/(.{4})/, "$1 ").trim();
     const enlace = `${location.origin}/s/${sala.codigo}`;
+    const enlaceAlumnos = `${enlace}?a=${sala.codigo_alumnos}`;
     $("#enlace-mostrar").textContent = enlace;
+    $("#enlace-alumnos-mostrar").textContent = enlaceAlumnos;
     $("#codigo-alumnos-mostrar").textContent = formato(sala.codigo_alumnos);
     $("#btn-ir-sala").href = `/sala/${sala.id}`;
 
@@ -155,6 +158,7 @@ $("#form-crear").addEventListener("submit", async (e) => {
       });
     }
     copiarA($("#btn-copiar-enlace"), enlace, "Copiado");
+    copiarA($("#btn-copiar-enlace-alumnos"), enlaceAlumnos, "Copiado");
     copiarA($("#btn-copiar-codigo"), sala.codigo_alumnos, "Copiado");
   } catch (err) {
     msg.textContent = err.message || "No se pudo crear la sala";

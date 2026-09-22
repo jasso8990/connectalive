@@ -28,6 +28,13 @@ function codigoDeUrl() {
   return q ? q.toUpperCase() : "";
 }
 
+// Si el enlace trae `?a=CODIGO`, es el enlace de alumnos: entra directo
+// con rol alumno sin pasar por la pantalla de elección.
+function codigoAlumnoDeUrl() {
+  const q = new URLSearchParams(location.search).get("a");
+  return q ? q.toUpperCase() : "";
+}
+
 function mostrar(id) {
   ["paso-codigo-sala", "paso-cargando", "paso-eleccion"].forEach((x) => {
     document.getElementById(x).classList.toggle("oculto", x !== id);
@@ -129,14 +136,35 @@ async function entrarConRol(rol) {
 
 // --- Arranque --------------------------------------------------------------
 const inicial = codigoDeUrl();
+const codigoAlumno = codigoAlumnoDeUrl();
 if (inicial) {
   mostrar("paso-cargando");
   try {
     sala = await buscarSala(inicial);
-    // Si el usuario pegó accidentalmente el código de alumno en la URL, ya
-    // sabemos la sala igual (la RPC busca en ambos). Lo tratamos como si
-    // hubieran ido por el flujo normal — se le pregunta si tiene código.
-    await prepararEleccion();
+
+    // Si el enlace trae `?a=CODIGO_ALUMNOS` y ese código corresponde a esta
+    // misma sala, entra directo como alumno — sin mostrar la pantalla de
+    // elección. Sin sesión, redirige al login y al volver aterriza aquí
+    // mismo (`irALogin` conserva el query string).
+    if (codigoAlumno) {
+      const u = await currentUser();
+      if (!u) { irALogin(); }
+      else {
+        try {
+          const s2 = await buscarSala(codigoAlumno);
+          if (s2.id === sala.id && s2.rol_asignado === "alumno") {
+            await entrarConRol("alumno");
+          } else {
+            // Código de alumno no válido para esta sala: cae al flujo normal.
+            await prepararEleccion();
+          }
+        } catch {
+          await prepararEleccion();
+        }
+      }
+    } else {
+      await prepararEleccion();
+    }
   } catch (err) {
     mostrar("paso-codigo-sala");
     error($("#mensaje-buscar"), err.message);
