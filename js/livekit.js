@@ -33,7 +33,14 @@ export async function pedirToken({ salaId, participanteId, rol }) {
     },
     body: JSON.stringify({ salaId, participanteId, rol }),
   });
-  if (!r.ok) throw new Error(`token ${r.status}`);
+  if (!r.ok) {
+    let detalle = "";
+    try {
+      const cuerpo = await r.json();
+      detalle = cuerpo?.error ? ` — ${cuerpo.error}` : "";
+    } catch { /* no era JSON */ }
+    throw new Error(`token ${r.status}${detalle}`);
+  }
   return r.json();
 }
 

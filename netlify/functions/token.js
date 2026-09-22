@@ -49,7 +49,8 @@ export default async (req) => {
     .select("id, sala_id, user_id, rol, voz_activa, nombre_mostrar")
     .eq("id", participanteId)
     .single();
-  if (eP || !p) return json({ error: "participante no existe" }, 404);
+  if (eP) return json({ error: `buscando participante: ${eP.message}`, code: eP.code }, 500);
+  if (!p) return json({ error: `participante ${participanteId} no encontrado` }, 404);
   if (p.sala_id !== salaId) return json({ error: "sala equivocada" }, 400);
   if (p.user_id !== userId) return json({ error: "no eres ese participante" }, 403);
 
