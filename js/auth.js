@@ -33,10 +33,18 @@ export async function entrar(email, password) {
 
 /** Crear cuenta con correo/contraseña y nombre para mostrar. */
 export async function registrar(email, password, nombre) {
+  // `emailRedirectTo` es CRÍTICO: el proyecto Supabase es compartido entre
+  // Cancha, Smartagent, Market y ConnectaLive. Sin este campo, el link de
+  // confirmación usa el Site URL global del proyecto (LigaBC) y el usuario
+  // aterriza en la app equivocada. El dominio también tiene que estar en
+  // Supabase → Authentication → URL Configuration → Redirect URLs.
   const { data, error } = await sb.auth.signUp({
     email,
     password,
-    options: { data: { nombre_mostrar: nombre } },
+    options: {
+      data: { nombre_mostrar: nombre },
+      emailRedirectTo: location.origin,
+    },
   });
   if (error) throw error;
   return data.user;
