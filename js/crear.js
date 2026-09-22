@@ -12,6 +12,22 @@ $("#btn-salir").addEventListener("click", async () => {
   location.replace("/");
 });
 
+// Si el usuario vuelve del Checkout, preguntarle a Stripe qué pasó ANTES de
+// medir autorización (así, si acaba de pagar, ya sale con plan vigente).
+{
+  const params = new URLSearchParams(location.search);
+  const marca = params.get("stripe");
+  if (marca === "ok") {
+    try {
+      await sb.functions.invoke("cl-revisar-suscripcion", { body: {} });
+    } catch { /* si falla, la pantalla de "no autorizado" invita a reintentar */ }
+    // Quita el ?stripe=ok del URL para que un F5 no vuelva a disparar.
+    history.replaceState({}, "", "/crear");
+  } else if (marca === "cancel") {
+    history.replaceState({}, "", "/crear");
+  }
+}
+
 // Sólo cuentas con plan vigente crean sala (consume minutos de LiveKit). El
 // resto puede unirse a salas de otros y usar pizarra/presentaciones gratis.
 {
@@ -36,8 +52,26 @@ $("#btn-salir").addEventListener("click", async () => {
           <div style="font-weight:600; font-size:17px">${p.nombre} — $${p.precio_usd}/mes</div>
           <div class="pista" style="margin-top:4px">Hasta <strong>${p.minutos_participante_mes.toLocaleString("es-MX")}</strong> minutos-participante al mes (≈ ${horasAprox} h de clase con 20 personas).</div>
         </div>
-        <a href="/api/checkout?plan=${p.slug}" class="btn btn-primario" style="flex-shrink:0" data-plan="${p.slug}">Contratar</a>
+        <button type="button" class="btn btn-primario" style="flex-shrink:0" data-plan="${p.slug}">Contratar</button>
       `;
+      const btn = tarjeta.querySelector("button");
+      btn.addEventListener("click", async () => {
+        const original = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "Abriendo…";
+        try {
+          const { data, error: e } = await sb.functions.invoke("cl-crear-checkout", {
+            body: { plan: p.slug },
+          });
+          if (e || data?.error) throw new Error(data?.error || e?.message || "Stripe no respondió");
+          if (!data?.url) throw new Error("Stripe no devolvió URL");
+          location.href = data.url;
+        } catch (err) {
+          btn.disabled = false;
+          btn.textContent = original;
+          alert(err.message || "No se pudo abrir el checkout");
+        }
+      });
       cont.appendChild(tarjeta);
     }
   }

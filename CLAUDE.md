@@ -84,22 +84,52 @@ set plan_slug = excluded.plan_slug,
 
 Juan (`jasso8990@gmail.com`) queda en plan `escuela` con vencimiento 2099.
 
-### Pendiente: Stripe Checkout automático
+### Stripe Checkout (patrón "sin webhook")
 
-Faltan:
-1. Crear cuenta Stripe (o usar la que exista) y crear 3 productos
-   recurrentes: precio $4.99, $19.99, $49.99 mensual.
-2. Meter en Netlify → Environment variables:
-   - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
-   - `STRIPE_PRICE_CLASE`, `STRIPE_PRICE_GRUPO`, `STRIPE_PRICE_ESCUELA`
-3. Escribir `netlify/functions/checkout.js` (crea sesión de Stripe Checkout
-   con el `price_id` según el slug y el correo del usuario logueado) y
-   `netlify/functions/stripe-webhook.js` (recibe `checkout.session.completed`
-   y `customer.subscription.updated/deleted`, y con `SUPABASE_SERVICE_ROLE_KEY`
-   escribe/actualiza `connectalive.autorizados`).
-4. Rutas en `netlify.toml`: `/api/checkout` → `/.netlify/functions/checkout`
-   y `/api/stripe-webhook` → `/.netlify/functions/stripe-webhook`.
-5. Copiar el URL del webhook en el panel de Stripe.
+Mismo patrón que Cancha, Smartagent, Vitalia: el navegador abre Checkout,
+Stripe cobra, devuelve al frente en `/crear?stripe=ok`, y el frente llama
+`cl-revisar-suscripcion` que le pregunta a Stripe qué pasó y escribe la
+base con `connectalive.plan_amarrar_stripe`. No hay Stripe webhook.
+
+**Edge Functions** (viven en `supabase/functions/`, prefijo `cl-` porque
+el proyecto Supabase es compartido y los slugs de Edge Functions NO se
+separan por esquema — antes de desplegar cualquier función aquí,
+`list_edge_functions` primero):
+
+- `cl-crear-checkout` — recibe `{ plan: 'clase'|'grupo'|'escuela' }`,
+  crea una sesión de Stripe Checkout con el `price_id` correspondiente y
+  devuelve `{ url }`. El frente redirige. `verify_jwt=true`.
+- `cl-revisar-suscripcion` — sin body. Con el JWT del usuario, busca su
+  customer de Stripe, saca la última sub, la mapea a plan por price_id
+  y llama `plan_amarrar_stripe` (service_role) para grabar plan+vence_en+
+  customer+subscription en `connectalive.autorizados`. `verify_jwt=true`.
+
+**Secrets** que las Edge Functions leen de Supabase → Project Settings →
+Edge Functions → Secrets:
+
+- `STRIPE_SECRET_KEY` (Juan ya lo puso)
+- `STRIPE_PRICE_CLASE`, `STRIPE_PRICE_GRUPO`, `STRIPE_PRICE_ESCUELA`
+  (los 3 price_id de la cuenta de Stripe; Juan ya los puso)
+- `CL_APP_ORIGEN` opcional — el fallback ya apunta a
+  `connectalive.smrt-app.org`. La función también acepta el origen del
+  request si viene de `connectalive.smrt-app.org` o
+  `connectalive.netlify.app` (whitelist).
+
+**Funciones SQL de soporte** (`connectalive`):
+
+- `plan_estatus()` — `SECURITY DEFINER`, devuelve `{ plan_slug, vence_en,
+  con_stripe, stripe_customer_id }` del `auth.uid()` actual. La usan la
+  UI y las Edge Functions. Otorgada a `authenticated`.
+- `plan_amarrar_stripe(user_id, customer, sub, plan, vence_en)` —
+  `SECURITY DEFINER`, hace upsert en `autorizados`. Otorgada SÓLO a
+  `service_role` (un navegador nunca se puede subir el plan solo).
+
+**Frontend** (`js/crear.js`):
+
+- Al cargar `/crear?stripe=ok`, invoca `cl-revisar-suscripcion` antes de
+  medir autorización y limpia el URL con `history.replaceState`.
+- El botón "Contratar" invoca `cl-crear-checkout` y hace
+  `location.href = data.url`.
 
 ### Pendiente: medir uso y bloquear al pasarse
 
