@@ -25,6 +25,18 @@ if (!/^[0-9a-f-]{36}$/i.test(salaId)) location.replace("/inicio");
 
 const user = await requireUser();
 
+// Modo control (`?control=1`): la tableta del dirigente escribe en la pizarra
+// o pasa diapositivas mientras la PC transmite la cámara. No se conecta a
+// LiveKit: con la misma identidad sacaría a la PC, y así no gasta minutos.
+const modoControl = new URLSearchParams(location.search).get("control") === "1";
+if (modoControl) document.body.classList.add("modo-tableta");
+
+// Qué ve cada quien cuando hay pizarra o diapositivas: sólo al maestro,
+// ambos lado a lado, o sólo el contenido. Es de este navegador nada más.
+const VISTAS = ["maestro", "ambos", "contenido"];
+let vista = "ambos";
+try { if (VISTAS.includes(localStorage.getItem("cl-vista"))) vista = localStorage.getItem("cl-vista"); } catch {}
+
 // Columnas de `salas` que lee el navegador (el código de alumnos NO: ese se
 // pide aparte y sólo se lo da la base al dirigente).
 const COLS_SALA = "id,codigo,nombre,descripcion,dirigente_id,cerrada_en,abierta_a_oyentes," +
@@ -112,13 +124,14 @@ function aplicarMiRol() {
   $("#mi-rol").textContent = { dirigente: "Dirigente", alumno: "Alumno", oyente: "Oyente" }[yo.rol];
   $("#mi-rol").dataset.rol = yo.rol;
 
-  const puedeHablar = yo.rol !== "oyente" || yo.voz_activa;
+  const puedeHablar = !modoControl && (yo.rol !== "oyente" || yo.voz_activa);
   $("#btn-mic").classList.toggle("oculto", !puedeHablar);
   $("#btn-cam").classList.toggle("oculto", !puedeHablar);
   $("#btn-pantalla").classList.toggle("oculto", !puedeHablar);
-  $("#btn-mano").classList.toggle("oculto", yo.rol !== "oyente");
+  $("#btn-mano").classList.toggle("oculto", yo.rol !== "oyente" || modoControl);
   $("#btn-pizarra").classList.toggle("oculto", yo.rol === "oyente");
-  $("#btn-invitar").classList.toggle("oculto", !soyDir());
+  $("#btn-invitar").classList.toggle("oculto", !soyDir() || modoControl);
+  $("#btn-tableta").classList.toggle("oculto", !soyDir() || modoControl);
 
   $("#zona-subir").classList.toggle("oculto", !puedeHablar);
   $("#zona-subir-pista").textContent = soyDir()
@@ -143,8 +156,8 @@ function pintarGente() {
   $("#conteo-alumnos").textContent = `(${grupos.alumno.length})`;
   $("#conteo-oyentes").textContent = `(${grupos.oyente.length})`;
   if (soyDir()) {
-    $$(".btn-rol").forEach((b) => b.addEventListener("click", onCambiarRol));
-    $$(".btn-voz").forEach((b) => b.addEventListener("click", onDarQuitarVoz));
+    $$('[data-tab="gente"] .btn-rol').forEach((b) => b.addEventListener("click", onCambiarRol));
+    $$('[data-tab="gente"] .btn-voz').forEach((b) => b.addEventListener("click", onDarQuitarVoz));
   }
 }
 
@@ -152,15 +165,21 @@ function fila(p) {
   const eresTu = p.user_id === user.id ? '<span class="chip-mini">tú</span>' : "";
   let acciones = "";
   if (soyDir() && p.user_id !== user.id) {
+    // Tres cosas distintas: la palabra (momentánea, sigue de oyente) y los
+    // cambios de rol (alumno ↔ oyente, para quien entró con el enlace
+    // equivocado). Por eso cada botón dice qué hace.
     if (p.rol === "oyente") {
       acciones = `
-        <button class="btn-mini btn-rol" data-id="${p.id}" data-nuevo="alumno">Subir a alumno</button>
-        <button class="btn-mini btn-voz" data-id="${p.id}" data-voz="${p.voz_activa ? "0" : "1"}">${p.voz_activa ? "Quitar voz" : "Dar voz"}</button>`;
+        <button class="btn-mini btn-voz${p.voz_activa ? "" : " verde"}" data-id="${p.id}" data-voz="${p.voz_activa ? "0" : "1"}"
+          title="${p.voz_activa ? "Vuelve a sólo ver y oír" : "Habla un momento y sigue siendo oyente"}">${p.voz_activa ? "Quitar la palabra" : "Dar la palabra"}</button>
+        <button class="btn-mini btn-rol" data-id="${p.id}" data-nuevo="alumno"
+          title="Cambia su rol: se queda como alumno toda la clase">Cambiar a alumno</button>`;
     } else if (p.rol === "alumno") {
-      acciones = `<button class="btn-mini btn-rol" data-id="${p.id}" data-nuevo="oyente">Bajar a oyente</button>`;
+      acciones = `<button class="btn-mini btn-rol" data-id="${p.id}" data-nuevo="oyente"
+        title="Cambia su rol: sólo ve y oye (puede levantar la mano)">Cambiar a oyente</button>`;
     }
   }
-  const marca = p.voz_activa && p.rol === "oyente" ? '<span class="chip-mini verde">con voz</span>' : "";
+  const marca = p.voz_activa && p.rol === "oyente" ? '<span class="chip-mini verde">tiene la palabra</span>' : "";
   return `
     <li>
       <div class="gente-nombre">${escapar(p.nombre_mostrar)} ${eresTu} ${marca}</div>
@@ -182,8 +201,11 @@ function pintarSolicitudes() {
 
   // La mano del oyente se ve levantada mientras su petición espera.
   const mano = solicitudes.find((s) => s.participante_id === yo.id && s.tipo === "mano" && s.estado === "pendiente");
-  $("#btn-mano").classList.toggle("pulsando", !!mano);
-  $("#btn-mano").title = mano ? "Bajar la mano" : "Levantar la mano";
+  const conPalabra = yo.rol === "oyente" && yo.voz_activa;
+  $("#btn-mano").classList.toggle("pulsando", !!mano && !conPalabra);
+  $("#btn-mano").classList.toggle("con-palabra", conPalabra);
+  $("#btn-mano").title = conPalabra ? "Ya terminé (soltar la palabra)" : mano ? "Bajar la mano" : "Levantar la mano";
+  $("#btn-mano").setAttribute("aria-label", $("#btn-mano").title);
 
   if (!soyDir()) {
     $("#lista-solicitudes").innerHTML = paraMi.map((s) => `
@@ -191,19 +213,31 @@ function pintarSolicitudes() {
           <div class="sol-estado">${etiquetaEstado(s.estado)}</div></li>`).join("");
     return;
   }
-  $("#lista-solicitudes").innerHTML = pendientes.map((s) => {
+  // Arriba, los oyentes que tienen la palabra ahora mismo: es momentánea y
+  // aquí se ve a quién hay que quitársela.
+  const hablando = [...participantes.values()].filter((p) => p.rol === "oyente" && p.voz_activa && !p.salido_en);
+  $("#sol-vacio").classList.toggle("oculto", paraMi.length + hablando.length > 0);
+  $("#lista-solicitudes").innerHTML = hablando.map((p) => `
+      <li class="sol-hablando">
+        <div class="sol-nombre">${escapar(p.nombre_mostrar)} tiene la palabra <span class="chip-mini">oyente</span></div>
+        <div class="sol-acciones">
+          <button class="btn-mini btn-voz" data-id="${p.id}" data-voz="0">Quitar la palabra</button>
+        </div>
+      </li>`).join("") + pendientes.map((s) => {
     const p = participantes.get(s.participante_id);
     if (!p) return "";
     return `
       <li>
         <div class="sol-nombre">${escapar(p.nombre_mostrar)} ${etiquetaTipo(s.tipo)}</div>
+        ${s.tipo === "mano" ? '<div class="sol-estado">Habla un momento y sigue siendo oyente.</div>' : ""}
         <div class="sol-acciones">
-          <button class="btn-mini verde" data-sol="${s.id}" data-accion="aprobar">Aprobar</button>
+          <button class="btn-mini verde" data-sol="${s.id}" data-accion="aprobar">${s.tipo === "mano" ? "Dar la palabra" : "Aprobar"}</button>
           <button class="btn-mini" data-sol="${s.id}" data-accion="rechazar">Rechazar</button>
         </div>
       </li>`;
   }).join("");
   $$("[data-sol]").forEach((b) => b.addEventListener("click", onResolverSolicitud));
+  $$("#lista-solicitudes .btn-voz").forEach((b) => b.addEventListener("click", onDarQuitarVoz));
 }
 
 function pintarArchivos() {
@@ -370,7 +404,20 @@ async function onDescargar(e) {
 }
 
 // --- Mano alzada -------------------------------------------------------------
+// La palabra del oyente es momentánea: con la palabra, el mismo botón la
+// suelta («Ya terminé»). Sigue siendo oyente; subir a alumno es otra cosa.
 $("#btn-mano").addEventListener("click", async () => {
+  if (yo.rol === "oyente" && yo.voz_activa) {
+    try {
+      await room?.localParticipant.setMicrophoneEnabled(false);
+      await room?.localParticipant.setCameraEnabled(false);
+      await room?.localParticipant.setScreenShareEnabled(false);
+    } catch {}
+    const { error } = await sb.rpc("soltar_palabra", { p_sala: salaId });
+    if (error) return aviso(error.message);
+    await sincronizarPermisos(yo.id);
+    return aviso("Listo, soltaste la palabra. Si quieres volver a hablar, levanta la mano.");
+  }
   const existe = solicitudes.find((s) => s.participante_id === yo.id && s.tipo === "mano" && s.estado === "pendiente");
   if (existe) {
     const { error } = await sb.from("solicitudes")
@@ -430,16 +477,35 @@ async function aplicarVista() {
   if (terminada) return;
   const pz = !!sala.pizarra_abierta;
   const dp = !pz && !!sala.presentacion_storage_path;
-  $("#pizarra").classList.toggle("oculto", !pz);
-  $("#diapositivas").classList.toggle("oculto", !dp);
-  $("#tarima").classList.toggle("oculto", pz || dp);
+  // En la tableta de control siempre se ve el contenido; en los demás manda
+  // la vista que eligió cada quien.
+  const v = modoControl ? "contenido" : vista;
+  const verContenido = (pz || dp) && v !== "maestro";
+  $("#pizarra").classList.toggle("oculto", !pz || !verContenido);
+  $("#diapositivas").classList.toggle("oculto", !dp || !verContenido);
+  $("#tarima").classList.toggle("oculto", verContenido);
+  document.body.dataset.vista = v;
+  $("#vista-selector").classList.toggle("oculto", modoControl || !(pz || dp));
+  $("#vista-contenido").textContent = pz ? "Pizarra" : "Presentación";
+  $$("#vista-selector [data-vista]").forEach((b) => b.classList.toggle("activo", b.dataset.vista === vista));
   $("#btn-pizarra").dataset.estado = pz ? "on" : "off";
   $("#btn-diapositivas").dataset.estado = dp ? "on" : "off";
   $("#btn-diapositivas").classList.toggle("oculto", yo.rol === "oyente");
   refrescarPizarra();
-  await refrescarDiapositivas(dp);
+  await refrescarDiapositivas(dp && verContenido);
+  if (modoControl && !verContenido) {
+    $("#tarima").innerHTML = soyDir()
+      ? '<div class="tarima-vacia">Modo control: abre la <b>pizarra</b> o sube una <b>presentación</b> con los botones de abajo.<br>Tu cámara sigue en la PC.</div>'
+      : '<div class="tarima-vacia">Aquí aparecen la pizarra o las diapositivas cuando se abran.</div>';
+  }
   pintarVideos();
 }
+
+$$("#vista-selector [data-vista]").forEach((b) => b.addEventListener("click", () => {
+  vista = b.dataset.vista;
+  try { localStorage.setItem("cl-vista", vista); } catch {}
+  aplicarVista();
+}));
 
 // --- Pizarra -----------------------------------------------------------------
 function refrescarPizarra() {
@@ -595,7 +661,16 @@ $("#btn-invitar").addEventListener("click", async () => {
 $$("[data-copiar]").forEach((b) => b.addEventListener("click", () => copiar(b, $("#" + b.dataset.copiar).textContent)));
 $("#inv-cerrar").addEventListener("click", () => $("#dlg-invitar").close());
 
+$("#btn-tableta").addEventListener("click", () => {
+  $("#tab-enlace").textContent = `${location.origin}/sala/${salaId}?control=1`;
+  $("#dlg-tableta").showModal();
+});
+$("#tab-cerrar").addEventListener("click", () => $("#dlg-tableta").close());
+
 $("#btn-salir").addEventListener("click", () => {
+  // La tableta de control comparte el renglón de participante con la PC:
+  // si marcara la salida, a la PC también la daría por ida.
+  if (modoControl) return location.replace("/inicio");
   $("#btn-terminar").classList.toggle("oculto", !soyDir());
   $("#salir-pista").textContent = soyDir()
     ? "Si sólo sales, la clase sigue abierta y puedes volver desde Inicio. «Terminar para todos» la cierra y borra sus archivos."
@@ -642,6 +717,10 @@ function suscribir() {
       (payload) => {
         if (payload.eventType === "DELETE") participantes.delete(payload.old.id);
         else {
+          const previo = participantes.get(payload.new.id);
+          if (soyDir() && previo?.voz_activa && !payload.new.voz_activa && payload.new.rol === "oyente") {
+            aviso(`${payload.new.nombre_mostrar} ya no tiene la palabra.`);
+          }
           participantes.set(payload.new.id, payload.new);
           if (payload.new.user_id === user.id) {
             const antes = yo;
@@ -703,7 +782,10 @@ function pintarVideos() {
   for (const p of todos) for (const pub of p.trackPublications.values()) pub.track?.detach();
   for (const n of [$("#tarima"), $("#tira-videos"), $("#tira-videos-dp")]) n.innerHTML = "";
 
-  for (const p of todos) {
+  // El dirigente va primero: en «Ambos» y «Maestro» es el cuadro grande.
+  const esDir = (p) => participantes.get(p.identity)?.rol === "dirigente";
+  const orden = [...todos].sort((a, b) => esDir(b) - esDir(a));
+  for (const p of orden) {
     const pubs = [...p.trackPublications.values()].filter((x) => x.track);
     const part = participantes.get(p.identity);
     const esDirigente = part?.rol === "dirigente";
@@ -771,10 +853,10 @@ async function conectarLK() {
 
 // --- Arranque ------------------------------------------------------------------
 try {
-  cargarLivekit().catch(() => {});      // precarga el SDK mientras hacemos consultas
+  if (!modoControl) cargarLivekit().catch(() => {});      // precarga el SDK mientras hacemos consultas
   if (await cargarTodo()) {
     suscribir();
-    try {
+    if (!modoControl) try {
       await conectarLK();
     } catch (err) {
       console.error(err);

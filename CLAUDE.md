@@ -220,6 +220,16 @@ Functions; si Juan agrega un plan nuevo hay que tocar ambos archivos.
   vuelve a bajarlos. Los oyentes NUNCA reciben archivos salvo que el
   dirigente ponga destinatarios = `todos`.
 
+**Tres cosas distintas** (Juan lo aclaró el 2026-09-23; no mezclarlas):
+
+1. **Dar la palabra** (mano alzada → «Dar la palabra»): `voz_activa = true`,
+   **sigue siendo oyente**. Es momentánea: el oyente la suelta con «Ya
+   terminé» (`soltar_palabra(sala)`, sólo apaga, y `permiso.js` acepta que
+   cada quien refleje lo suyo) o el dirigente la quita desde Peticiones, donde
+   arriba sale quién tiene la palabra ahora.
+2. **Cambiar a alumno**: un alumno que entró con el enlace de oyentes.
+3. **Cambiar a oyente**: alguien que consiguió el código de alumnos sin serlo.
+
 **Cómo entra cada quien** (esta parte la pidió Juan explícitamente):
 
 Cada sala tiene **DOS códigos**: `codigo` (oyentes) y `codigo_alumnos`.
@@ -237,6 +247,21 @@ a abrir el enlace de alumnos ya no lo sube); y si un alumno legítimo usó el
 enlace de oyentes, puede **subirlo a alumno** con un botón. El rol
 en el navegador es cosmético: la verdad vive en la tabla `participantes` y
 LiveKit refleja el permiso técnico en caliente vía `permiso.js`.
+
+## Tableta como control y vistas de la clase
+
+- **Modo control** (`/sala/<id>?control=1`, botón «Tableta» del dirigente o
+  «Como control» en Inicio): la PC transmite la cámara y la tableta, con la
+  MISMA cuenta, escribe en la pizarra o pasa diapositivas. Ese modo **no se
+  conecta a LiveKit**: la identidad de LiveKit es el id de participante y dos
+  conexiones con la misma sacan a la primera (la PC). Tampoco gasta minutos.
+  «Salir» en modo control NO llama `salir_de_sala` (el renglón es el mismo
+  que el de la PC).
+- **Vista de cada quien** (Maestro / Ambos / Presentación o Pizarra):
+  selector en la barra de arriba cuando hay pizarra o PDF abierto. Es de cada
+  navegador (`localStorage cl-vista`), no cambia lo que ven los demás.
+  Por defecto «Ambos»: contenido a la izquierda, videos en columna con el
+  dirigente arriba.
 
 ## Estructura del repo
 

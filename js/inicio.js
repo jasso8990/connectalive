@@ -84,7 +84,10 @@ try {
           <div class="gente-nombre">${escapar(p.salas.nombre)}</div>
           <div class="arch-meta">${etiqueta[p.rol] || p.rol} · código ${escapar(p.salas.codigo)}</div>
         </div>
-        <a class="btn btn-secundario btn-chico" href="/sala/${p.salas.id}">Entrar</a>
+        <div class="linea">
+          ${p.rol === "dirigente" ? `<a class="btn btn-lineal btn-chico" href="/sala/${p.salas.id}?control=1" title="Pizarra y diapositivas sin cámara: para la tableta">Como control</a>` : ""}
+          <a class="btn btn-secundario btn-chico" href="/sala/${p.salas.id}">Entrar</a>
+        </div>
       </li>`).join("");
   }
 }

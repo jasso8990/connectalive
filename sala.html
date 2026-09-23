@@ -21,6 +21,14 @@
     <div class="sala-top-derecha">
       <span id="sala-codigo" class="chip ocultar-movil"></span>
       <span id="mi-rol" class="chip chip-rol">…</span>
+      <!-- Cómo ve cada quien la clase cuando hay pizarra o diapositivas.
+           Es de cada navegador: no cambia lo que ven los demás. -->
+      <div id="vista-selector" class="segmentado oculto" role="group" aria-label="Qué ver">
+        <button type="button" data-vista="maestro">Maestro</button>
+        <button type="button" data-vista="ambos">Ambos</button>
+        <button type="button" data-vista="contenido" id="vista-contenido">Presentación</button>
+      </div>
+      <button id="btn-tableta" class="btn btn-lineal btn-chico oculto" type="button" title="Usar la tableta para escribir o pasar diapositivas">Tableta</button>
       <button id="btn-invitar" class="btn btn-secundario btn-chico oculto" type="button">Invitar</button>
       <button id="btn-salir" class="btn btn-lineal" type="button">Salir</button>
     </div>
@@ -198,6 +206,17 @@
         <p class="pista pista-chica">Pásalo sólo a quienes van a hablar.</p>
       </div>
       <menu class="acciones"><button type="button" id="inv-cerrar">Listo</button></menu>
+    </div>
+  </dialog>
+
+  <!-- Tableta como control (sólo dirigente) -->
+  <dialog id="dlg-tableta">
+    <div class="stack">
+      <h3>Usar la tableta como control</h3>
+      <p class="pista">La PC sigue con tu cámara y tu micrófono. En la tableta abre este enlace con tu misma cuenta: ahí escribes en la pizarra o pasas las diapositivas, sin cámara y sin gastar minutos.</p>
+      <div class="codigo-caja"><span class="texto-mono" id="tab-enlace"></span><button class="btn btn-primario btn-chico" type="button" data-copiar="tab-enlace">Copiar</button></div>
+      <p class="pista pista-chica">También lo encuentras en Inicio → Tus clases abiertas → «Como control». No entres a la clase normal desde la tableta: con la misma cuenta, la PC se desconecta del video.</p>
+      <menu class="acciones"><button type="button" id="tab-cerrar">Listo</button></menu>
     </div>
   </dialog>
 

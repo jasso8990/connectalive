@@ -41,17 +41,22 @@ export default async (req) => {
     .eq("id", salaId)
     .single();
   if (!sala) return json({ error: "sala no existe" }, 404);
-  if (sala.dirigente_id !== userId) return json({ error: "sólo el dirigente cambia permisos" }, 403);
 
   // El permiso sale de la base (lo que el dirigente ya grabó), no de lo que
   // diga el navegador.
   const { data: p } = await admin
     .schema("connectalive")
     .from("participantes")
-    .select("id, sala_id, rol, voz_activa")
+    .select("id, sala_id, user_id, rol, voz_activa")
     .eq("id", participanteId)
     .single();
   if (!p || p.sala_id !== salaId) return json({ error: "ese participante no es de esta sala" }, 404);
+  // El dirigente mueve a cualquiera; cada quien puede reflejar lo suyo (el
+  // oyente que suelta la palabra). Como se aplica lo que dice la base, pedirlo
+  // uno mismo no le da nada que la base no le haya dado.
+  if (sala.dirigente_id !== userId && p.user_id !== userId) {
+    return json({ error: "sólo el dirigente cambia permisos" }, 403);
+  }
   const puedePublicar = p.rol !== "oyente" || p.voz_activa;
 
   // Ahora sí, mover en LiveKit.

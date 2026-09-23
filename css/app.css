@@ -527,3 +527,59 @@ dialog .acciones button.btn-primario { background: var(--primario); color: #fff;
   .sala-top { padding: 10px 12px; flex-wrap: wrap; gap: 8px; }
   .sala-cuerpo { padding: 10px; gap: 10px; }
 }
+
+/* --- Vista de cada quien en la clase (Maestro / Ambos / Presentación) --- */
+.segmentado {
+  display: inline-flex; padding: 3px; gap: 2px;
+  background: #fff; border: 1px solid var(--linea); border-radius: 999px;
+}
+.segmentado button {
+  border: 0; background: transparent; color: var(--texto-suave);
+  font: inherit; font-size: 13px; font-weight: 600;
+  padding: 5px 12px; border-radius: 999px; cursor: pointer;
+}
+.segmentado button.activo { background: #0f172a; color: #fff; }
+
+/* Ambos: el contenido a la izquierda y los videos en columna a la derecha,
+   con el dirigente arriba en grande. */
+body[data-vista="ambos"] .pizarra,
+body[data-vista="ambos"] .diapositivas {
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 30%);
+  grid-template-rows: 1fr auto;
+}
+body[data-vista="ambos"] .pizarra > .tira-videos,
+body[data-vista="ambos"] .diapositivas > .tira-videos {
+  grid-column: 2; grid-row: 1 / span 2;
+  flex-direction: column; overflow-x: hidden; overflow-y: auto;
+}
+body[data-vista="ambos"] .tira-videos .video-box { flex: 0 0 auto; width: 100%; }
+body[data-vista="ambos"] .tira-videos .video-inicial { font-size: 34px; }
+body[data-vista="ambos"] .pizarra-lienzo,
+body[data-vista="ambos"] .diapo-lienzo { height: clamp(220px, calc(100dvh - 280px), 2000px); }
+
+/* Sólo el contenido: se esconde la tira (el audio sigue sonando). */
+body[data-vista="contenido"] .pizarra > .tira-videos,
+body[data-vista="contenido"] .diapositivas > .tira-videos { display: none; }
+body[data-vista="contenido"] .pizarra-lienzo,
+body[data-vista="contenido"] .diapo-lienzo { height: clamp(220px, calc(100dvh - 280px), 2000px); }
+
+/* Tableta de control: sin panel lateral ni videos, todo el espacio al lienzo. */
+.modo-tableta .panel-lateral { display: none; }
+.modo-tableta .sala-cuerpo { grid-template-columns: 1fr; }
+.modo-tableta .pizarra-lienzo,
+.modo-tableta .diapo-lienzo { height: clamp(220px, calc(100dvh - 250px), 2000px); }
+.modo-tableta .diapo-toolbar button.btn { padding: 12px 22px; }
+.modo-tableta .diapo-toolbar button.btn svg { width: 26px; height: 26px; }
+
+@media (max-width: 700px) {
+  body[data-vista="ambos"] .pizarra,
+  body[data-vista="ambos"] .diapositivas { grid-template-columns: 1fr; grid-template-rows: 1fr auto auto; }
+  body[data-vista="ambos"] .pizarra > .tira-videos,
+  body[data-vista="ambos"] .diapositivas > .tira-videos { grid-column: 1; grid-row: auto; flex-direction: row; overflow-x: auto; }
+  body[data-vista="ambos"] .tira-videos .video-box { flex: 0 0 48%; width: auto; }
+  .segmentado button { padding: 5px 9px; }
+}
+
+/* Oyente con la palabra: el botón de la mano pasa a «Ya terminé». */
+.btn-icono.destacado.con-palabra { background: #16a34a; color: #fff; border-color: #16a34a; }
+.sol-hablando { border-left: 3px solid #16a34a; }
