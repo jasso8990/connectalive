@@ -43,6 +43,12 @@ cuestan. Sólo **dar** una clase en vivo lleva plan; unirse es gratis.
 
 ## Autenticación
 
+- `signUp` manda `emailRedirectTo: location.origin`. En Supabase → Auth →
+  Redirect URLs están (desde 2026-09-23) `https://connectalive.smrt-app.org`,
+  `https://connectalive.smrt-app.org/**` y lo mismo para
+  `connectalive.netlify.app`. El Site URL del proyecto es LigaBC: si falta
+  el dominio en esa lista, el correo de confirmación manda a LigaBC.
+
 **Todos los participantes se autentican con correo/contraseña**, mismo
 patrón que Vitalia. No hay ruta de invitado anónimo. La regla vive donde
 Juan la pidió: cualquiera con el link puede *intentar* entrar a una sala,
