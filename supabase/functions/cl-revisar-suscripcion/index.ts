@@ -88,8 +88,7 @@ Deno.serve(async (req) => {
     const plan  = planDePrice(price);
     if (!plan) return responde({ ok: true, cambio: false, mensaje: "Price desconocido" });
 
-    // La suscripción activa (o en periodo pagado) determina la fecha
-    // hasta la que vale el plan.
+    // El fin del periodo pagado es la fecha hasta la que vale el plan.
     // Una cancelada vale hasta el fin del periodo que ya pagó. Las versiones
     // nuevas del API de Stripe mueven current_period_end al item.
     const fin = sub.current_period_end ?? sub.items?.data?.[0]?.current_period_end;

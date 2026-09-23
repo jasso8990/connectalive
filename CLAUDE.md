@@ -193,10 +193,12 @@ Functions; si Juan agrega un plan nuevo hay que tocar ambos archivos.
    sala (leer/subir para participantes; borrar para el dirigente).
 3. ~~Netlify~~ — sitio `connectalive` (`connectalive.netlify.app`, rama
    `master`), con las variables de LiveKit y `SUPABASE_SERVICE_ROLE_KEY`
-   puestas (token.js contesta). **Ojo (2026-09-23)**: el dominio propio quedó
-   escrito `connectalive.srmt-app.org` (srmt) en Domain management; por eso
-   `connectalive.smrt-app.org` da error de certificado. Hay que corregirlo a
-   `smrt-app.org` en Netlify.
+   puestas. Dominio `connectalive.smrt-app.org` con certificado desde el
+   2026-09-23 (antes estaba escrito `srmt-app.org` y el certificado nunca
+   salía). Como las otras apps, lleva en Netlify una zona DNS
+   `connectalive.smrt-app.org` con registro NETLIFY → `connectalive.netlify.app`;
+   sin esa zona Netlify no emitía el certificado aunque el CNAME de Namecheap
+   estuviera bien.
 
 ## Cómo funcionan los roles (esto es lo que hace la app)
 
@@ -295,11 +297,10 @@ LiveKit refleja el permiso técnico en caliente vía `permiso.js`.
 - **Columnas de `salas`**: después de `20260923b_cerrar_participantes.sql`
   el navegador NO tiene SELECT sobre `codigo_alumnos`. Un `select('*')` a
   `salas` truena: pedir columnas explícitas (`COLS_SALA` en `sala.js`).
-- **Orden al publicar** (ver memoria "Migración que cierra acceso va
-  DESPUÉS del push"): `20260923_*` y `20260923a_*` ya están aplicadas;
-  `20260923b_cerrar_participantes.sql` va DESPUÉS de que Netlify sirva el
-  código nuevo, y las Edge Functions `cl-*` se despliegan también después
-  (el checkout nuevo regresa a `/panel`, que el sitio viejo no tiene).
+- **Estado al 2026-09-23**: todas las migraciones del repo están aplicadas
+  (la de cierre, `20260923b`, después del push, como pide la memoria
+  "Migración que cierra acceso va DESPUÉS del push") y las tres `cl-*`
+  desplegadas.
 - **Cuentas QA**: `qa.connectalive@smrt-app.org` (Premium, titular) y
   `qa.alumno.connectalive@smrt-app.org` (sin plan). Contraseña en
   `.local/qa-user.md` (fuera de git). Creadas por SQL; no tienen perfil de
