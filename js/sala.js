@@ -784,8 +784,16 @@ async function conectarLK() {
 
       for (const pub of p.trackPublications.values()) {
         if (pub.track && pub.kind === "video") {
+          // Screen share: `contain` (se ve toda la pantalla, sin recorte) y
+          // la caja ocupa toda la fila del grid para que se lea. Cámara:
+          // `cover` como antes.
+          const esScreen = pub.source === "screen_share" || pub.track?.source === "screen_share";
           const el = pub.track.attach();
           el.classList.add("video-media");
+          if (esScreen) {
+            el.classList.add("video-screen");
+            box.classList.add("es-screen");
+          }
           box.appendChild(el);
         }
         if (pub.track && pub.kind === "audio" && p !== room.localParticipant) {

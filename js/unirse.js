@@ -88,6 +88,16 @@ async function prepararEleccion() {
     nota.textContent = "Esta clase está cerrada al público. Sólo entran alumnos con código.";
     $("#det-codigo").before(nota);
   }
+
+  // Si el enlace trae `?a=CODIGO` pero el auto-entrar no disparó (por ej.
+  // porque el código no cuadraba con esta sala), al menos prellena el campo
+  // y abre el acordeón: el usuario ya no tiene que copiar/pegar nada, sólo
+  // dar click a "Entrar como alumno".
+  if (codigoAlumno) {
+    $("#codigo-alumno").value = codigoAlumno;
+    $("#det-codigo").setAttribute("open", "");
+  }
+
   mostrar("paso-eleccion");
 }
 
@@ -141,29 +151,14 @@ if (inicial) {
   mostrar("paso-cargando");
   try {
     sala = await buscarSala(inicial);
+    await prepararEleccion();
 
-    // Si el enlace trae `?a=CODIGO_ALUMNOS` y ese código corresponde a esta
-    // misma sala, entra directo como alumno — sin mostrar la pantalla de
-    // elección. Sin sesión, redirige al login y al volver aterriza aquí
-    // mismo (`irALogin` conserva el query string).
+    // Si el enlace trae `?a=CODIGO_ALUMNOS`, dispara el flujo normal de
+    // "Entrar como alumno" (que valida y hace insert de participante). Si
+    // todo sale bien, ni siquiera ve la pantalla; si falla, la ve con el
+    // campo ya lleno y el mensaje de error visible.
     if (codigoAlumno) {
-      const u = await currentUser();
-      if (!u) { irALogin(); }
-      else {
-        try {
-          const s2 = await buscarSala(codigoAlumno);
-          if (s2.id === sala.id && s2.rol_asignado === "alumno") {
-            await entrarConRol("alumno");
-          } else {
-            // Código de alumno no válido para esta sala: cae al flujo normal.
-            await prepararEleccion();
-          }
-        } catch {
-          await prepararEleccion();
-        }
-      }
-    } else {
-      await prepararEleccion();
+      $("#btn-alumno").click();
     }
   } catch (err) {
     mostrar("paso-codigo-sala");
