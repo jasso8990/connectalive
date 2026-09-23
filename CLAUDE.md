@@ -1,10 +1,19 @@
 # ConnectaLive — notas del proyecto
 
-Videollamada tipo clase o taller. La forma es Zoom, pero el papel manda:
-el **dirigente** conduce, los **alumnos** pueden hablar y compartir, los
-**oyentes** ven y escuchan. Un oyente puede pedir la palabra y el dirigente
-se la da (o se la quita) cuando quiere. Todo lo que se pasa —pantalla,
-archivos— llega primero al dirigente y él decide a quién le llega.
+Tres herramientas en una app. Al entrar (`/inicio`) la persona elige:
+
+1. **Pizarra** (gratis) — escribe en la tableta o el celular y se proyecta en
+   la PC en tiempo real. Es lo que era Pizarra en Vivo.
+2. **Presentación remota** (gratis) — la PC muestra un PDF y el celular lo
+   controla: cambiar, mirar la anterior/siguiente en privado, subrayar, zoom.
+3. **Clase o taller en vivo** (con plan) — videollamada tipo Zoom donde el
+   papel manda: el **dirigente** conduce, los **alumnos** hablan y comparten,
+   los **oyentes** ven y escuchan y pueden pedir la palabra. Dentro de la
+   clase también hay pizarra y diapositivas. Todo lo que se pasa —pantalla,
+   archivos— llega primero al dirigente y él decide a quién le llega.
+
+Pizarra y presentación NO usan LiveKit (sólo Supabase Realtime), por eso no
+cuestan. Sólo **dar** una clase en vivo lleva plan; unirse es gratis.
 
 ## Identidad e infra
 
@@ -41,36 +50,63 @@ pero primero tiene que loguearse; el "código de alumno" que sólo el
 dirigente reparte es lo que sube el rol de oyente → alumno. Si un colado
 consigue el código, el dirigente lo baja a oyente desde la lista de gente.
 
-## Quién puede CREAR sala (autorización + plan)
+## Quién puede CREAR clase (autorización + plan)
 
-Crear sala consume min-participante de LiveKit (cuenta de Juan). Sólo
-cuentas con **plan vigente** crean sala. Cualquiera se registra, se
-une a salas que le compartan, y usa pizarra / presentaciones gratis.
+Crear clase consume min-participante de LiveKit (cuenta de Juan). Sólo
+cuentas con **plan vigente** crean clase — el plan propio o el de la escuela
+o empresa que las dio de alta como maestro.
 
 ### Planes (regla ×2 sobre el costo real)
 
 Costo real de LiveKit Ship = $50/150 000 min = **$0.000333/min-participante**.
 
-| Slug | Nombre | Precio | Min-participante/mes | Costo real Juan |
-|---|---|---|---|---|
-| `clase` | Clase | $4.99 | 7 500 | ~$2.50 |
-| `grupo` | Grupo | $19.99 | 30 000 | ~$10 |
-| `escuela` | Escuela | $49.99 | 75 000 | ~$25 |
+| Slug | Nombre al cliente | Precio | Maestros (con el titular) | Min-participante/mes | Costo real Juan |
+|---|---|---|---|---|---|
+| `clase` | **Básico** | $4.99 | 1 | 7 500 | ~$2.50 |
+| `grupo` | **Premium** | $19.99 | 5 | 30 000 | ~$10 |
+| `escuela` | **Institucional** (escuelas y empresas) | $49.99 | 30 | 75 000 | ~$25 |
 
-Viven en `connectalive.planes` (lectura pública para pintarlos en la
-pantalla de "no autorizado").
+- Viven en `connectalive.planes` (`max_maestros`, `descripcion`; lectura
+  pública). **Los slugs no cambian** (los usan las Edge Functions de Stripe);
+  sólo cambió el nombre que ve el cliente (2026-09-23: "Empresarial" pasó a
+  "Institucional" porque aplica a escuelas y a empresas).
+- Cambiar un tope = `update connectalive.planes set max_maestros = …`. No
+  hay que tocar código.
+- Básico = una sola persona. Quien tenga su correo y contraseña también
+  puede dar clases con él (es la misma cuenta).
+- Los minutos son de TODA la cuenta (titular + maestros), no por maestro.
+
+### Equipo: el titular da de alta maestros (`/panel`)
+
+- Tabla `connectalive.maestros (titular_id, correo, nombre)`. RLS sin
+  políticas: todo pasa por funciones.
+- Se da de alta **por correo**: si la persona ya tiene cuenta entra hoy; si
+  no, en cuanto se registre con ese correo (no hay que reclamar nada:
+  `mi_cuenta()` compara contra el correo del usuario en `auth.users`).
+- Si el titular baja de plan, los maestros que ya no caben quedan **en
+  pausa** (los últimos por fecha de alta), no se borran.
+- Funciones: `panel_resumen()` (plan, uso del mes, uso por maestro,
+  maestros, de quién soy maestro), `equipo_agregar(correo, nombre)`,
+  `equipo_quitar(id)`.
 
 ### Cómo funciona el candado
 
-- Tabla `connectalive.autorizados (user_id, plan_slug, vence_en, stripe_customer_id, stripe_subscription_id, autorizado_en, notas)`, RLS niega lectura (`autorizados_nadie`).
-- Función `connectalive.puede_crear_sala()` `SECURITY DEFINER` devuelve
-  `true` si el usuario tiene `plan_slug` y `vence_en > now()`.
+- `autorizados (user_id, plan_slug, vence_en, stripe_*)` = el **titular**.
+  RLS niega lectura (`autorizados_nadie`).
+- `mi_cuenta()` devuelve el titular con el que das clases (tú si tu plan
+  está vigente; si no, el primer titular vigente que te tenga de maestro
+  dentro de su tope). `puede_crear_sala()` = `mi_cuenta() is not null`.
 - Política `salas_crear` exige `dirigente_id = auth.uid() AND puede_crear_sala()`.
-- `js/crear.js` llama la RPC al cargar; si `false`, esconde el formulario y
-  muestra `#paso-no-autorizado` con los 3 planes y un botón "Contratar"
-  por plan que apunta a `/api/checkout?plan=<slug>`.
+- Trigger `salas_al_crear` pone `salas.cuenta_id = mi_cuenta()` (la base,
+  no el navegador) y `salas_dirigente_participa` inscribe al dirigente.
+- **Medición de minutos**: cada navegador conectado al video llama
+  `latido(sala)` cada minuto (cuenta uno cada ≥55 s por participante) y suma
+  en `uso_minutos (cuenta_id, mes, dirigente_id)`. `token.js` pregunta
+  `sala_puede_transmitir(sala)` (sólo service_role) y **niega el token (402)**
+  si la clase terminó, el plan venció o la cuenta ya gastó sus minutos del
+  mes. Sólo bloquea al ENTRAR; quien ya está dentro termina su clase.
 
-### Alta manual (mientras no está Stripe)
+### Alta manual (sin Stripe)
 
 ```sql
 insert into connectalive.autorizados (user_id, plan_slug, vence_en, notas)
@@ -82,14 +118,20 @@ set plan_slug = excluded.plan_slug,
     notas = excluded.notas;
 ```
 
-Juan (`jasso8990@gmail.com`) queda en plan `escuela` con vencimiento 2099.
+Juan (`jasso8990@gmail.com`) y su cuenta de pruebas (`jasso-juan@hotmail.com`)
+quedan en plan `escuela` con vencimiento 2099.
 
 ### Stripe Checkout (patrón "sin webhook")
 
 Mismo patrón que Cancha, Smartagent, Vitalia: el navegador abre Checkout,
-Stripe cobra, devuelve al frente en `/crear?stripe=ok`, y el frente llama
+Stripe cobra, devuelve al frente en `/panel?stripe=ok`, y el frente llama
 `cl-revisar-suscripcion` que le pregunta a Stripe qué pasó y escribe la
 base con `connectalive.plan_amarrar_stripe`. No hay Stripe webhook.
+
+**Renovación mensual**: como nadie escucha a Stripe, `js/plan.js` vuelve a
+llamar `cl-revisar-suscripcion` al abrir Inicio, Panel o Crear cuando el
+plan viene de Stripe y ya venció (o vence en <24 h). Sin esto el cliente que
+sí pagó quedaba bloqueado cada mes.
 
 **Edge Functions** (viven en `supabase/functions/`, prefijo `cl-` porque
 el proyecto Supabase es compartido y los slugs de Edge Functions NO se
@@ -99,10 +141,16 @@ separan por esquema — antes de desplegar cualquier función aquí,
 - `cl-crear-checkout` — recibe `{ plan: 'clase'|'grupo'|'escuela' }`,
   crea una sesión de Stripe Checkout con el `price_id` correspondiente y
   devuelve `{ url }`. El frente redirige. `verify_jwt=true`.
+- `cl-portal-cliente` — abre el Customer Portal de Stripe (cambiar tarjeta,
+  cambiar de plan con prorrateo, cancelar). Vuelve a `/panel?stripe=ok`.
+  `verify_jwt=true`. Con plan de Stripe vigente, `cl-crear-checkout` se
+  niega (409) para no crear una segunda suscripción: el cambio va por aquí.
 - `cl-revisar-suscripcion` — sin body. Con el JWT del usuario, busca su
   customer de Stripe, saca la última sub, la mapea a plan por price_id
   y llama `plan_amarrar_stripe` (service_role) para grabar plan+vence_en+
   customer+subscription en `connectalive.autorizados`. `verify_jwt=true`.
+  Sólo cuentan subs `active`, `trialing`, `past_due` o `canceled` (ésta,
+  hasta el fin del periodo pagado); un pago rechazado ya no da plan.
 
 **Secrets** que las Edge Functions leen de Supabase → Project Settings →
 Edge Functions → Secrets:
@@ -130,21 +178,12 @@ Functions; si Juan agrega un plan nuevo hay que tocar ambos archivos.
   `SECURITY DEFINER`, hace upsert en `autorizados`. Otorgada SÓLO a
   `service_role` (un navegador nunca se puede subir el plan solo).
 
-**Frontend** (`js/crear.js`):
+**Frontend** (`js/panel.js`):
 
-- Al cargar `/crear?stripe=ok`, invoca `cl-revisar-suscripcion` antes de
-  medir autorización y limpia el URL con `history.replaceState`.
-- El botón "Contratar" invoca `cl-crear-checkout` y hace
-  `location.href = data.url`.
-
-### Pendiente: medir uso y bloquear al pasarse
-
-Hoy el plan sólo controla *quién crea*, no el *volumen*. Cuando un cliente
-real esté consumiendo, agregar tope: `netlify/functions/token.js` (que
-emite el JWT de LiveKit) niega token si el mes actual ya rebasó
-`minutos_participante_mes` del plan del dirigente de la sala. Fuente del
-conteo: webhook de LiveKit (`participant_left` con duración) o cálculo
-periódico desde el API de LiveKit.
+- Al cargar `/panel?stripe=ok`, invoca `cl-revisar-suscripcion` y limpia el
+  URL con `history.replaceState`.
+- "Contratar" invoca `cl-crear-checkout`; "Administrar pago o cambiar de
+  plan" invoca `cl-portal-cliente`.
 
 ## Pasos que hay que hacer una sola vez
 
@@ -152,12 +191,12 @@ periódico desde el API de LiveKit.
    (`ALTER ROLE authenticator SET pgrst.db_schemas` incluye `connectalive`).
 2. ~~Bucket Storage `connectalive`~~ — creado con SQL con políticas por
    sala (leer/subir para participantes; borrar para el dirigente).
-3. **Netlify** (falta): importar el repo `jasso8990/connectalive` como
-   sitio nuevo y agregar `connectalive.smrt-app.org` en Domain management.
-   En Namecheap, CNAME `connectalive → <site>.netlify.app`.
-4. **LiveKit Cloud** (falta): crear cuenta gratis, meter las 3 variables
-   (`LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`) más
-   `SUPABASE_SERVICE_ROLE_KEY` en Netlify → Site → Environment variables.
+3. ~~Netlify~~ — sitio `connectalive` (`connectalive.netlify.app`, rama
+   `master`), con las variables de LiveKit y `SUPABASE_SERVICE_ROLE_KEY`
+   puestas (token.js contesta). **Ojo (2026-09-23)**: el dominio propio quedó
+   escrito `connectalive.srmt-app.org` (srmt) en Domain management; por eso
+   `connectalive.smrt-app.org` da error de certificado. Hay que corregirlo a
+   `smrt-app.org` en Netlify.
 
 ## Cómo funcionan los roles (esto es lo que hace la app)
 
@@ -178,31 +217,61 @@ periódico desde el API de LiveKit.
 Cada sala tiene **DOS códigos**: `codigo` (oyentes) y `codigo_alumnos`.
 El dirigente los ve al crear la sala y comparte cada uno donde toca —
 el de alumnos por privado, el de oyentes por donde sea. La función
-`buscar_sala_por_codigo` recibe cualquiera de los dos y devuelve el rol
-correspondiente. Cuando el navegador inserta el participante, va con ese
-rol de entrada — no se necesita promoción manual para los alumnos.
+`unirse_a_sala(codigo)` (SECURITY DEFINER) recibe cualquiera de los dos y
+**la base** decide el rol: oyente con el público, alumno con el de alumnos.
+El navegador ya no inserta su propio renglón (antes podía ponerse de alumno
+o de dirigente con sólo el enlace público). El código de alumnos sólo se lo
+da `sala_codigo_alumnos(sala)` al dirigente (botón "Invitar" de la clase).
 
 Si aún así alguien no deseado consigue el código de alumnos, el dirigente
-puede **bajarlo a oyente** desde la lista de gente; y si un alumno legítimo
-usó el enlace de oyentes, puede **subirlo a alumno** con un botón. El rol
+puede **bajarlo a oyente** desde la lista de gente (queda `rol_fijado`: volver
+a abrir el enlace de alumnos ya no lo sube); y si un alumno legítimo usó el
+enlace de oyentes, puede **subirlo a alumno** con un botón. El rol
 en el navegador es cosmético: la verdad vive en la tabla `participantes` y
 LiveKit refleja el permiso técnico en caliente vía `permiso.js`.
 
 ## Estructura del repo
 
-- `index.html` / `js/index.js` — portada: entrar, crear sala o unirse.
-- `crear.html` / `js/crear.js` — dirigente crea sala y ve el código.
-- `unirse.html` / `js/unirse.js` — cualquiera pega el código y entra.
-- `sala.html` / `js/sala.js` — la sala en vivo (LiveKit + estado en Supabase).
-- `js/config.js` — URL de Supabase y publishable key.
-- `js/supabase.js` — cliente Supabase con `db: { schema: 'connectalive' }`.
-- `js/auth.js` — helpers de sesión.
-- `js/livekit.js` — conexión y helpers de LiveKit desde CDN.
-- `netlify/functions/token.js` — emite JWT de LiveKit con permisos según rol.
-- `netlify/functions/permiso.js` — el dirigente cambia el rol y esta función
-  refleja el permiso técnico en LiveKit (subir/bajar `canPublish`) sin
-  necesidad de que el oyente se reconecte.
-- `supabase/migrations/20260921_connectalive_esquema.sql` — el esquema.
+- `index.html` / `js/index.js` — portada: entrar, registrarse o pegar un código.
+- `inicio.html` / `js/inicio.js` — **elegir**: Pizarra, Presentación o Clase;
+  y "Tus clases abiertas".
+- `panel.html` / `js/panel.js` — Mi plan y equipo (uso, maestros, planes, pago).
+- `pizarra.html` / `js/pizarra-libre.js` — pizarra libre (`?c=CÓDIGO&modo=escribir`
+  en la tableta, `?c=CÓDIGO` en la PC).
+- `presentacion.html` / `js/presentacion-libre.js` — presentación remota
+  (`/presentacion` la PC sube el PDF; `?c=CÓDIGO&modo=control` el celular).
+- `crear.html` / `js/crear.js` — el dirigente crea la clase y ve sus enlaces.
+- `unirse.html` / `js/unirse.js` — entrar a una clase con enlace o código.
+- `sala.html` / `js/sala.js` — la clase en vivo (LiveKit + estado en Supabase).
+- `js/lienzo.js` — motor de dibujo único (pizarra libre, anotaciones sobre
+  diapositivas y pizarra de la clase). Trazos en vectores normalizados.
+- `js/tablero.js` — sincroniza pizarra/presentación libres (broadcast +
+  `tableros` + control de un solo dispositivo con latido).
+- `js/pizarra.js` — pizarra dentro de la clase (usa `lienzo.js`).
+- `js/diapositivas.js` — visor PDF (pdf.js 3.11, a propósito: la 4/5 truena
+  en Chrome 131 de las tabletas Android).
+- `js/plan.js` — estado del plan y renovación contra Stripe.
+- `js/util.js`, `js/config.js`, `js/supabase.js`, `js/auth.js`, `js/livekit.js`.
+- `netlify/functions/token.js` — JWT de LiveKit; niega si no hay plan/minutos.
+- `netlify/functions/permiso.js` — refleja en LiveKit el permiso que YA
+  grabó el dirigente en la base (lo lee de ahí, no del navegador).
+- `supabase/migrations/` — el esquema completo (las del 2026-09-22 que se
+  aplicaron sin guardarse se trajeron el 2026-09-23 con sufijo a/b/c/d).
+- `supabase/functions/cl-*` — Stripe.
+
+### Pizarra y presentación libres (tablas y funciones)
+
+- `tableros (codigo, tipo, dueno_id, trazos, pagina, paginas, zoom, pan_x,
+  pan_y, pdf_path, control_token, control_visto)` + `tablero_vistas`. RLS sin
+  políticas; todo por `tablero_crear / leer / tomar_control / latido /
+  guardar / cerrar`.
+- **Controlar** (escribir o mover diapositivas) sólo lo hace la **cuenta que
+  abrió la sesión** — el código se proyecta frente a todos. Un dispositivo a
+  la vez; si deja de latir 2 min, otro lo toma (o se fuerza con confirmación).
+  Ver con el código lo puede cualquier cuenta.
+- PDFs libres en `connectalive/libres/<dueño>/<código>/…`. Sólo los lee quien
+  ya abrió ese código (`tablero_vistas`), así listar el bucket no revela nada.
+  Al crear un tablero se borran los propios de más de 2 días.
 
 ## Trampas conocidas
 
@@ -220,3 +289,18 @@ LiveKit refleja el permiso técnico en caliente vía `permiso.js`.
 - **LiveKit desde CDN**: se carga `livekit-client` (cliente) por CDN. El
   SDK de servidor `livekit-server-sdk` va como dependencia en
   `package.json` porque las Netlify Functions sí corren en Node.
+- **Realtime de `salas`**: la tabla no estaba en la publicación
+  `supabase_realtime` y nadie veía abrir la pizarra, cambiar de diapositiva
+  ni terminar la clase. Ya está (migración 2026-09-23).
+- **Columnas de `salas`**: después de `20260923b_cerrar_participantes.sql`
+  el navegador NO tiene SELECT sobre `codigo_alumnos`. Un `select('*')` a
+  `salas` truena: pedir columnas explícitas (`COLS_SALA` en `sala.js`).
+- **Orden al publicar** (ver memoria "Migración que cierra acceso va
+  DESPUÉS del push"): `20260923_*` y `20260923a_*` ya están aplicadas;
+  `20260923b_cerrar_participantes.sql` va DESPUÉS de que Netlify sirva el
+  código nuevo, y las Edge Functions `cl-*` se despliegan también después
+  (el checkout nuevo regresa a `/panel`, que el sitio viejo no tiene).
+- **Cuentas QA**: `qa.connectalive@smrt-app.org` (Premium, titular) y
+  `qa.alumno.connectalive@smrt-app.org` (sin plan). Contraseña en
+  `.local/qa-user.md` (fuera de git). Creadas por SQL; no tienen perfil de
+  Smartagent.

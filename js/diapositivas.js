@@ -1,18 +1,16 @@
-// Diapositivas — renderiza un PDF al canvas usando pdf.js.
+// Diapositivas: abre un PDF con pdf.js y pinta una página ajustada a su
+// contenedor (cabe completa, a lo ancho y a lo alto).
 //
-// El PDF se sube a Storage y todos los participantes lo abren con una URL
-// firmada (los buckets son privados). La página actual vive en
-// `salas.presentacion_pagina_actual` y se propaga por realtime (que ya
-// escuchamos en sala.js). El presentador cambia de página con las flechas
-// del teclado o los botones — al hacerlo, actualiza esa columna y todos los
-// navegadores se sincronizan al ver el cambio.
+// Se usa pdf.js 3.x (build UMD) a propósito: la 4.x/5.x pide APIs que
+// Chrome 131 de las tabletas Android todavía no trae (Uint8Array#toHex,
+// Map#getOrInsertComputed) y era justo lo que tronaba en Pizarra en Vivo.
 
 const PDFJS_VER = "3.11.174";
 const PDFJS_URL = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VER}/build/pdf.min.js`;
 const WORKER_URL = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VER}/build/pdf.worker.min.js`;
 
 let _cargando = null;
-export function cargarPdfjs() {
+function cargarPdfjs() {
   if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
   if (_cargando) return _cargando;
   _cargando = new Promise((res, rej) => {
@@ -22,41 +20,81 @@ export function cargarPdfjs() {
       window.pdfjsLib.GlobalWorkerOptions.workerSrc = WORKER_URL;
       res(window.pdfjsLib);
     };
-    s.onerror = () => rej(new Error("no se pudo cargar pdf.js"));
+    s.onerror = () => { _cargando = null; rej(new Error("No se pudo cargar el lector de PDF")); };
     document.head.appendChild(s);
   });
   return _cargando;
 }
 
-export async function crearVisorDiapositivas({ url, contenedorCanvas }) {
+/** Cuenta las páginas de un archivo local sin subirlo. */
+export async function contarPaginas(archivo) {
   const pdfjs = await cargarPdfjs();
-  const doc = await pdfjs.getDocument(url).promise;
-  const canvas = contenedorCanvas;
-  const ctx = canvas.getContext("2d");
-  let paginaActual = 1;
-  let tareaRender = null;
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(await archivo.arrayBuffer()) }).promise;
+  const n = doc.numPages;
+  await doc.destroy();
+  return n;
+}
 
-  async function ir(pagina) {
-    paginaActual = Math.max(1, Math.min(pagina, doc.numPages));
-    if (tareaRender) { try { tareaRender.cancel(); } catch {} }
-    const p = await doc.getPage(paginaActual);
-    // Escala para que la página quepa en el ancho del contenedor con buena nitidez.
-    const anchoDisponible = canvas.clientWidth || 1200;
-    const vBase = p.getViewport({ scale: 1 });
-    const escala = (anchoDisponible / vBase.width) * (window.devicePixelRatio || 1);
+/**
+ * Crea un visor. `canvas` es donde se pinta; `contenedor` es la caja que
+ * manda el tamaño. `alMedir({ancho, alto})` avisa el tamaño CSS con que
+ * quedó la página (para empatar encima el lienzo de anotaciones).
+ */
+export async function crearVisor({ fuente, canvas, contenedor, alMedir }) {
+  const pdfjs = await cargarPdfjs();
+  // Se le pasan los bytes, no la URL: algunos navegadores de tableta no
+  // dejan que el worker lea una URL firmada de otro dominio.
+  let datos = fuente;
+  if (typeof fuente === "string") {
+    const r = await fetch(fuente);
+    if (!r.ok) throw new Error("No se pudo descargar el PDF");
+    datos = new Uint8Array(await r.arrayBuffer());
+  }
+  const doc = await pdfjs.getDocument({ data: datos }).promise;
+  const ctx = canvas.getContext("2d");
+  let pagina = 1;
+  let tarea = null;
+  let turno = 0;
+
+  async function pintar() {
+    const mio = ++turno;
+    if (tarea) { try { tarea.cancel(); } catch {} tarea = null; }
+    const p = await doc.getPage(pagina);
+    if (mio !== turno) return;
+    const anchoCaja = contenedor.clientWidth || 800;
+    const altoCaja = contenedor.clientHeight || 450;
+    const base = p.getViewport({ scale: 1 });
+    const escala = Math.max(0.1, Math.min(anchoCaja / base.width, altoCaja / base.height));
     const v = p.getViewport({ scale: escala });
-    canvas.width = v.width;
-    canvas.height = v.height;
-    tareaRender = p.render({ canvasContext: ctx, viewport: v });
-    await tareaRender.promise;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(v.width * dpr);
+    canvas.height = Math.round(v.height * dpr);
+    canvas.style.width = `${Math.round(v.width)}px`;
+    canvas.style.height = `${Math.round(v.height)}px`;
+    alMedir?.({ ancho: Math.round(v.width), alto: Math.round(v.height) });
+    tarea = p.render({ canvasContext: ctx, viewport: v, transform: dpr === 1 ? null : [dpr, 0, 0, dpr, 0, 0] });
+    try { await tarea.promise; }
+    catch (e) { if (e?.name !== "RenderingCancelledException") throw e; }
   }
 
+  let espera = null;
+  const observador = new ResizeObserver(() => {
+    clearTimeout(espera);
+    espera = setTimeout(() => pintar().catch(() => {}), 80);
+  });
+  observador.observe(contenedor);
+
   return {
-    ir,
-    get pagina() { return paginaActual; },
+    get pagina() { return pagina; },
     get total() { return doc.numPages; },
+    async ir(n) {
+      pagina = Math.max(1, Math.min(n || 1, doc.numPages));
+      await pintar();
+    },
     async destruir() {
-      try { if (tareaRender) tareaRender.cancel(); } catch {}
+      observador.disconnect();
+      clearTimeout(espera);
+      try { tarea?.cancel(); } catch {}
       try { await doc.destroy(); } catch {}
     },
   };

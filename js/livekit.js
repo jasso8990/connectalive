@@ -1,6 +1,8 @@
 // Cliente LiveKit por CDN. El SDK expone `LivekitClient` global (UMD).
 // El bundle carga chico; no compilamos nada.
 
+import { TOKEN_ENDPOINT } from "./config.js";
+
 const CDN = "https://cdn.jsdelivr.net/npm/livekit-client@2.9.6/dist/livekit-client.umd.min.js";
 
 let _cargando = null;
@@ -14,40 +16,40 @@ export function cargarLivekit() {
     s.src = CDN;
     s.async = true;
     s.onload = () => res(window.LivekitClient);
-    s.onerror = () => rej(new Error("no se pudo cargar LiveKit"));
+    s.onerror = () => { _cargando = null; rej(new Error("No se pudo cargar el video (LiveKit)")); };
     document.head.appendChild(s);
   });
   return _cargando;
 }
 
 /** Pide token al backend y devuelve { token, url }. */
-export async function pedirToken({ salaId, participanteId, rol }) {
+async function pedirToken({ salaId, participanteId }) {
   const { sb } = await import("./supabase.js");
   const { data: { session } } = await sb.auth.getSession();
   if (!session) throw new Error("sin sesión");
-  const r = await fetch("/.netlify/functions/token", {
+  const r = await fetch(TOKEN_ENDPOINT, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       authorization: `Bearer ${session.access_token}`,
     },
-    body: JSON.stringify({ salaId, participanteId, rol }),
+    body: JSON.stringify({ salaId, participanteId }),
   });
   if (!r.ok) {
-    let detalle = "";
-    try {
-      const cuerpo = await r.json();
-      detalle = cuerpo?.error ? ` — ${cuerpo.error}` : "";
-    } catch { /* no era JSON */ }
-    throw new Error(`token ${r.status}${detalle}`);
+    let cuerpo = null;
+    try { cuerpo = await r.json(); } catch { /* no era JSON */ }
+    // 402: clase terminada, plan vencido o sin minutos. El mensaje ya viene
+    // escrito para la persona.
+    if (r.status === 402 && cuerpo?.error) throw new Error(cuerpo.error);
+    throw new Error(`No se pudo conectar el video (${r.status}${cuerpo?.error ? ` — ${cuerpo.error}` : ""})`);
   }
   return r.json();
 }
 
 /** Conecta a la sala LiveKit y devuelve la instancia de Room ya conectada. */
-export async function conectarSala({ salaId, participanteId, rol }) {
+export async function conectarSala({ salaId, participanteId }) {
   const LK = await cargarLivekit();
-  const { token, url } = await pedirToken({ salaId, participanteId, rol });
+  const { token, url } = await pedirToken({ salaId, participanteId });
   const room = new LK.Room({
     adaptiveStream: true,
     dynacast: true,

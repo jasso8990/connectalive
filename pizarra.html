@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Connectalive — Pizarra</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <link rel="icon" href="/assets/icono.png" type="image/png">
+  <link rel="apple-touch-icon" href="/assets/icono.png">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#0f172a">
+</head>
+<body class="pantalla-herramienta">
+  <header class="herr-top">
+    <a href="/inicio" class="marca-link" title="Inicio">
+      <img src="/assets/icono.png" alt="" class="marca-icono">
+      <span class="marca-nombre ocultar-movil">Pizarra</span>
+    </a>
+    <div class="herr-sesion">
+      <span class="punto-estado" id="estado-punto"></span>
+      <span id="estado-texto">Conectando…</span>
+      <span class="chip chip-codigo" title="Código de la sesión">Código <strong id="codigo">——</strong></span>
+    </div>
+    <div class="herr-acciones">
+      <button class="btn btn-secundario btn-chico oculto" type="button" id="btn-compartir">Proyectar en otra pantalla</button>
+      <button class="btn btn-secundario btn-chico oculto" type="button" id="btn-tomar">Escribir desde aquí</button>
+      <button class="btn btn-secundario btn-chico" type="button" id="btn-completa">Pantalla completa</button>
+      <button class="btn btn-lineal btn-chico oculto" type="button" id="btn-cerrar">Cerrar pizarra</button>
+    </div>
+  </header>
+
+  <main class="herr-cuerpo">
+    <aside class="barra-dibujo oculto" id="barra" aria-label="Herramientas">
+      <button type="button" data-herr="lapiz" title="Lápiz" aria-label="Lápiz">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+      </button>
+      <button type="button" data-herr="rect" title="Recuadro" aria-label="Recuadro">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="4" y="5" width="16" height="14" rx="1"/></svg>
+      </button>
+      <button type="button" data-herr="circulo" title="Círculo" aria-label="Círculo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="8"/></svg>
+      </button>
+      <button type="button" data-herr="borrador" title="Borrador" aria-label="Borrador">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3a1 1 0 0 1 0-1.4l10-10a1 1 0 0 1 1.4 0l5.6 5.6a1 1 0 0 1 0 1.4L11 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>
+      </button>
+      <button type="button" data-herr="zoom" title="Zoom (pellizca con dos dedos)" aria-label="Zoom">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><path d="M11 8v6M8 11h6"/></svg>
+      </button>
+      <span class="barra-sep"></span>
+      <button type="button" class="color" data-color="#18212f" aria-label="Negro"></button>
+      <button type="button" class="color" data-color="#2563eb" aria-label="Azul"></button>
+      <button type="button" class="color" data-color="#dc2626" aria-label="Rojo"></button>
+      <button type="button" class="color" data-color="#16a34a" aria-label="Verde"></button>
+      <button type="button" class="color" data-color="#f59e0b" aria-label="Amarillo"></button>
+      <span class="barra-sep"></span>
+      <label class="barra-grosor" title="Grosor"><input type="range" min="2" max="18" value="5" data-grosor aria-label="Grosor"></label>
+      <button type="button" id="btn-centrar" class="oculto" title="Quitar zoom" aria-label="Quitar zoom">1:1</button>
+      <span class="barra-espacio"></span>
+      <button type="button" data-accion="deshacer" title="Deshacer" aria-label="Deshacer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+      </button>
+      <button type="button" data-accion="limpiar" title="Borrar todo" aria-label="Borrar todo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+      </button>
+    </aside>
+
+    <section class="lienzo-caja" id="caja">
+      <div class="lienzo-marco" id="marco">
+        <div class="lienzo-envoltura" id="envoltura">
+          <canvas id="lienzo"></canvas>
+        </div>
+      </div>
+      <div class="aviso-flotante oculto" id="aviso"></div>
+    </section>
+  </main>
+
+  <dialog id="dlg-compartir">
+    <div class="stack">
+      <h3>Proyectar en la PC</h3>
+      <p class="pista">En la PC entra a Connectalive, elige <strong>Pizarra → Proyectar</strong> y escribe este código:</p>
+      <div class="codigo-grande centrado" id="dlg-codigo"></div>
+      <p class="pista">O abre este enlace:</p>
+      <div class="codigo-caja"><span id="dlg-enlace" class="texto-mono"></span><button class="btn btn-primario btn-chico" type="button" id="btn-copiar">Copiar</button></div>
+      <menu class="acciones"><button type="button" id="dlg-cerrar">Listo</button></menu>
+    </div>
+  </dialog>
+
+  <script type="module" src="/js/pizarra-libre.js"></script>
+</body>
+</html>

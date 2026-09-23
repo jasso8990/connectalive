@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connectalive — Mi plan y equipo</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <link rel="icon" href="/assets/icono.png" type="image/png">
+  <link rel="apple-touch-icon" href="/assets/icono.png">
+  <meta name="theme-color" content="#0f172a">
+</head>
+<body class="pantalla-luz">
+  <main class="portada">
+    <header class="marca">
+      <a href="/inicio" class="marca-link">
+        <img src="/assets/icono.png" alt="" class="marca-icono">
+        <span class="marca-nombre">Connectalive</span>
+      </a>
+      <a href="/inicio" class="btn-lineal">← Inicio</a>
+    </header>
+
+    <p id="mensaje" class="mensaje oculto"></p>
+    <section class="tarjeta" id="cargando"><p class="pista">Cargando tu plan…</p></section>
+
+    <!-- Plan del titular -->
+    <section class="tarjeta oculto" id="mi-plan">
+      <div class="fila-entre">
+        <div>
+          <span class="etiqueta">Tu plan</span>
+          <h1 id="plan-nombre">—</h1>
+        </div>
+        <span class="chip-mini" id="plan-estado">—</span>
+      </div>
+      <p class="pista" id="plan-detalle"></p>
+
+      <div class="uso">
+        <div class="fila-entre"><span>Minutos de clase este mes</span><strong id="uso-texto">—</strong></div>
+        <div class="barra-uso"><div id="uso-barra"></div></div>
+        <p class="pista pista-chica">Un minuto-participante es una persona conectada un minuto a una clase en vivo. Pizarra y presentación no cuentan.</p>
+      </div>
+
+      <div class="linea envolver">
+        <button class="btn btn-secundario oculto" type="button" id="btn-portal">Administrar pago o cambiar de plan</button>
+        <button class="btn btn-secundario oculto" type="button" id="btn-ver-planes">Ver otros planes</button>
+      </div>
+    </section>
+
+    <!-- Equipo -->
+    <section class="tarjeta oculto" id="equipo">
+      <div class="fila-entre">
+        <div>
+          <h2>Maestros de tu equipo</h2>
+          <p class="pista" id="equipo-cupo"></p>
+        </div>
+      </div>
+
+      <div class="aviso-suave oculto" id="equipo-basico">
+        El plan <strong>Básico</strong> es para una sola persona: sólo tú (o quien entre con tu correo y contraseña) puede dar clases.
+        Para dar de alta a más maestros, cambia a <strong>Premium</strong> (hasta 5) o <strong>Institucional</strong> (hasta 30, para escuelas y empresas).
+      </div>
+
+      <ul class="lista-simple" id="lista-maestros"></ul>
+
+      <form id="form-maestro" class="stack oculto" style="margin-top:14px">
+        <div class="linea envolver">
+          <label class="campo crece"><span>Correo del maestro</span>
+            <input id="m-correo" type="email" required placeholder="maestra@escuela.edu.mx" autocomplete="off"></label>
+          <label class="campo crece"><span>Nombre (opcional)</span>
+            <input id="m-nombre" type="text" maxlength="60" placeholder="Laura Méndez" autocomplete="off"></label>
+        </div>
+        <button class="btn btn-primario" type="submit" id="btn-agregar">Dar de alta</button>
+        <p class="pista pista-chica">Si todavía no tiene cuenta, que se registre en Connectalive con ese mismo correo. En cuanto entre, ya puede crear clases con tu plan.</p>
+      </form>
+
+      <div class="oculto" id="uso-maestros" style="margin-top:16px">
+        <h3 class="subtitulo">Uso de este mes por maestro</h3>
+        <ul class="lista-simple" id="lista-uso"></ul>
+      </div>
+    </section>
+
+    <!-- Maestro de otra cuenta -->
+    <section class="tarjeta oculto" id="soy-maestro">
+      <h2>Das clases con el plan de otra cuenta</h2>
+      <ul class="lista-simple" id="lista-soy-maestro"></ul>
+    </section>
+
+    <!-- Planes -->
+    <section class="tarjeta oculto" id="planes">
+      <h2 id="planes-titulo">Elige un plan para dar clases</h2>
+      <p class="pista">Unirte a clases, la pizarra y la presentación remota son gratis siempre. El plan es para <strong>dar</strong> clases o talleres en vivo.</p>
+      <div class="planes-grid" id="planes-lista"></div>
+      <p class="pista pista-chica" style="margin-top:14px">¿Ya pagaste y no ves el plan? Refresca esta página o escribe a <a href="mailto:jasso8990@gmail.com">jasso8990@gmail.com</a>.</p>
+    </section>
+  </main>
+
+  <script type="module" src="/js/panel.js"></script>
+</body>
+</html>

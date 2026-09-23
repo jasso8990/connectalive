@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Connectalive — Presentación</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <link rel="icon" href="/assets/icono.png" type="image/png">
+  <link rel="apple-touch-icon" href="/assets/icono.png">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#0f172a">
+</head>
+<body class="pantalla-herramienta">
+  <header class="herr-top">
+    <a href="/inicio" class="marca-link" title="Inicio">
+      <img src="/assets/icono.png" alt="" class="marca-icono">
+      <span class="marca-nombre ocultar-movil" id="titulo">Presentación</span>
+    </a>
+    <div class="herr-sesion">
+      <span class="punto-estado" id="estado-punto"></span>
+      <span id="estado-texto">…</span>
+      <span class="chip chip-codigo oculto" id="chip-codigo">Código <strong id="codigo">——</strong></span>
+      <span class="chip oculto" id="chip-pagina">— / —</span>
+    </div>
+    <div class="herr-acciones">
+      <button class="btn btn-secundario btn-chico oculto" type="button" id="btn-completa">Pantalla completa</button>
+      <button class="btn btn-lineal btn-chico oculto" type="button" id="btn-cerrar">Cerrar presentación</button>
+    </div>
+  </header>
+
+  <!-- Paso 1 (PC): elegir el PDF -->
+  <main class="herr-cuerpo centrado oculto" id="paso-subir">
+    <section class="tarjeta tarjeta-media">
+      <h1>Proyectar un PDF</h1>
+      <p class="pista">Esta pantalla muestra la presentación. Luego la controlas desde tu celular con el código que va a aparecer.</p>
+      <p class="pista pista-chica">¿Tienes PowerPoint o Keynote? Guárdalo como PDF (Archivo → Guardar como → PDF).</p>
+      <label class="btn btn-primario" for="input-pdf" id="lbl-pdf">Elegir PDF</label>
+      <input type="file" id="input-pdf" accept="application/pdf,.pdf" hidden>
+      <p id="msg-subir" class="mensaje oculto" style="margin-top:12px"></p>
+    </section>
+  </main>
+
+  <!-- Paso 2: la presentación (proyector o control) -->
+  <main class="herr-cuerpo diapo-modo oculto" id="paso-diapo">
+    <section class="diapo-caja" id="caja">
+      <div class="diapo-envoltura" id="envoltura">
+        <canvas id="pdf"></canvas>
+        <canvas id="notas" class="capa-notas"></canvas>
+      </div>
+      <div class="aviso-flotante oculto" id="aviso"></div>
+      <div class="codigo-proyector oculto" id="codigo-proyector">
+        <span>Controla desde tu celular</span>
+        <strong id="codigo-grande">——</strong>
+        <small>Inicio → Presentación remota → Controlar</small>
+      </div>
+    </section>
+
+    <!-- Sólo en el celular que controla -->
+    <section class="control oculto" id="control">
+      <div class="control-pestanas" role="tablist">
+        <button type="button" data-pestana="diapos" class="activo">Diapositivas</button>
+        <button type="button" data-pestana="subrayar">Subrayar</button>
+        <button type="button" data-pestana="zoom">Zoom</button>
+      </div>
+
+      <div class="control-panel" data-panel="diapos">
+        <div class="vista-privada oculto" id="vista-privada">
+          <div><span class="etiqueta">Vista privada</span> <strong id="vp-num"></strong> <span class="pista-chica">(la pantalla no ha cambiado)</span></div>
+          <div class="linea">
+            <button type="button" class="btn btn-secundario" id="vp-volver">Volver</button>
+            <button type="button" class="btn btn-primario" id="vp-mostrar">Mostrar en pantalla</button>
+          </div>
+        </div>
+        <div class="control-botones" id="botones-diapo">
+          <button type="button" class="btn btn-secundario btn-grande" id="btn-anterior" aria-label="Anterior">◀ Anterior</button>
+          <button type="button" class="btn btn-primario btn-grande" id="btn-siguiente" aria-label="Siguiente">Siguiente ▶</button>
+        </div>
+        <div class="linea control-mirar">
+          <button type="button" class="btn-lineal" id="btn-ver-anterior">Mirar la anterior</button>
+          <button type="button" class="btn-lineal" id="btn-ver-siguiente">Mirar la siguiente</button>
+        </div>
+      </div>
+
+      <div class="control-panel oculto barra-dibujo barra-horizontal" data-panel="subrayar" id="barra">
+        <button type="button" data-herr="lapiz" title="Marcador" aria-label="Marcador">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>
+        </button>
+        <button type="button" data-herr="borrador" title="Borrador" aria-label="Borrador">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3a1 1 0 0 1 0-1.4l10-10a1 1 0 0 1 1.4 0l5.6 5.6a1 1 0 0 1 0 1.4L11 21"/><path d="M22 21H7"/></svg>
+        </button>
+        <span class="barra-sep"></span>
+        <button type="button" class="color" data-color="#dc2626" aria-label="Rojo"></button>
+        <button type="button" class="color" data-color="#2563eb" aria-label="Azul"></button>
+        <button type="button" class="color" data-color="#16a34a" aria-label="Verde"></button>
+        <button type="button" class="color" data-color="#f59e0b" aria-label="Amarillo"></button>
+        <span class="barra-espacio"></span>
+        <button type="button" data-accion="deshacer" title="Deshacer" aria-label="Deshacer">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+        </button>
+        <button type="button" data-accion="limpiar" title="Borrar lo de esta diapositiva" aria-label="Borrar lo de esta diapositiva">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
+        </button>
+      </div>
+
+      <div class="control-panel oculto" data-panel="zoom">
+        <p class="pista pista-chica">Pellizca la diapositiva con dos dedos o usa los botones.</p>
+        <div class="control-zoom">
+          <button type="button" class="btn btn-secundario" data-z="-25">−</button>
+          <strong id="zoom-valor">100%</strong>
+          <button type="button" class="btn btn-secundario" data-z="25">+</button>
+          <button type="button" class="btn btn-secundario" data-mover="-8,0">←</button>
+          <button type="button" class="btn btn-secundario" data-mover="0,-8">↑</button>
+          <button type="button" class="btn btn-secundario" data-mover="0,8">↓</button>
+          <button type="button" class="btn btn-secundario" data-mover="8,0">→</button>
+          <button type="button" class="btn btn-secundario" id="btn-z-centrar">Centrar</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="/js/presentacion-libre.js"></script>
+</body>
+</html>

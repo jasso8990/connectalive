@@ -1,737 +1,686 @@
-// Sala en vivo.
+// Clase en vivo.
 //
 // Junta tres piezas:
-//   1) Supabase — estado (participantes, solicitudes, archivos) y realtime.
+//   1) Supabase — estado (sala, participantes, solicitudes, archivos) y realtime.
 //   2) LiveKit — audio/video/pantalla en vivo.
 //   3) Netlify Functions — emite el JWT de LiveKit y sube/baja permisos.
 //
 // El rol del navegador NO decide nada por sí solo: se lee de la base. Cada
-// vez que el dirigente cambia un rol o da/quita voz, se llama a la función
-// `permiso` para reflejarlo en LiveKit en caliente (sin reconectar).
+// vez que el dirigente cambia un rol o da/quita voz, `permiso` lo refleja en
+// LiveKit en caliente (sin reconectar).
 
 import { sb } from "./supabase.js";
-import { requireUser, nombreDe, salir } from "./auth.js";
-import { conectarSala, pedirToken, cargarLivekit } from "./livekit.js";
+import { requireUser } from "./auth.js";
+import { conectarSala, cargarLivekit } from "./livekit.js";
 import { STORAGE_BUCKET, PERMISO_ENDPOINT } from "./config.js";
 import { crearPizarra } from "./pizarra.js";
-import { crearVisorDiapositivas, cargarPdfjs } from "./diapositivas.js";
+import { crearVisor, contarPaginas } from "./diapositivas.js";
+import { escapar, copiar, pantallaCompleta } from "./util.js";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
 
 const salaId = location.pathname.split("/").pop();
-if (!salaId || salaId.length < 10) location.replace("/");
+if (!/^[0-9a-f-]{36}$/i.test(salaId)) location.replace("/inicio");
 
 const user = await requireUser();
 
+// Columnas de `salas` que lee el navegador (el código de alumnos NO: ese se
+// pide aparte y sólo se lo da la base al dirigente).
+const COLS_SALA = "id,codigo,nombre,descripcion,dirigente_id,cerrada_en,abierta_a_oyentes," +
+  "pizarra_abierta,pizarra_controlador_id,presentacion_storage_path,presentacion_nombre," +
+  "presentacion_paginas,presentacion_pagina_actual,presentacion_presentador_id";
+
 // --- Estado en memoria -----------------------------------------------------
 let sala = null;
-let miParticipante = null;
-let participantes = new Map();   // id → { id, user_id, rol, nombre_mostrar, voz_activa }
+let yo = null;                      // mi renglón de participantes
+let participantes = new Map();      // id → renglón
 let solicitudes = [];
 let archivos = [];
-let room = null;                 // LiveKit Room
-let LK = null;                   // namespace LivekitClient
-let miTokenRol = null;           // el "rol técnico" con el que se firmó el token actual
-let pizarra = null;              // instancia del módulo pizarra.js (null si está cerrada)
-let visorDiapo = null;           // instancia del visor de diapositivas (null si no hay)
-let ultimoStorageDiapo = null;   // ruta cargada, para no recargar en cada tick de realtime
+let room = null;                    // LiveKit Room
+let LK = null;                      // namespace LivekitClient
+let pizarra = null;                 // módulo pizarra.js (null si está cerrada)
+let visor = null;                   // visor de diapositivas (null si no hay)
+let pdfCargado = null;              // ruta del PDF abierto en el visor
+let latido = null;
+let terminada = false;              // ya se enseñó la pantalla final: nada más se pinta
+
+const soyDir = () => yo?.rol === "dirigente";
 
 // --- Carga inicial ---------------------------------------------------------
 async function cargarTodo() {
-  const { data: s, error: eS } = await sb.from("salas").select("*").eq("id", salaId).single();
+  const { data: s, error: eS } = await sb.from("salas").select(COLS_SALA).eq("id", salaId).maybeSingle();
   if (eS) return abortar(eS.message);
+  if (!s) return abortar("No estás en esta clase. Vuelve a entrar con el enlace o el código.");
+  if (s.cerrada_en) return abortar("Esta clase ya terminó.");
   sala = s;
-  $("#sala-nombre").textContent = s.nombre;
-  $("#sala-codigo").textContent = "Código " + s.codigo;
+
+  // Si habías salido, se marca que volviste (y si no estabas, te dice por qué).
+  const { data: mio } = await sb.from("participantes").select("id, salido_en")
+    .eq("sala_id", salaId).eq("user_id", user.id).maybeSingle();
+  if (!mio) return abortar("No estás en esta clase. Vuelve a entrar con el enlace o el código.");
+  if (mio.salido_en) {
+    const { error } = await sb.rpc("unirse_a_sala", { p_codigo: s.codigo });
+    if (error) return abortar(error.message);
+  }
 
   const { data: parts, error: eP } = await sb.from("participantes")
     .select("id, user_id, rol, nombre_mostrar, voz_activa, salido_en")
     .eq("sala_id", salaId);
   if (eP) return abortar(eP.message);
   participantes = new Map(parts.map((p) => [p.id, p]));
+  yo = parts.find((p) => p.user_id === user.id);
 
-  miParticipante = parts.find((p) => p.user_id === user.id) || null;
-  if (!miParticipante) return abortar("No estás en esta sala. Vuelve a entrar con el código.");
-
-  const { data: sols } = await sb.from("solicitudes")
-    .select("*")
-    .eq("sala_id", salaId)
-    .in("estado", ["pendiente", "aprobada"]);
+  const { data: sols } = await sb.from("solicitudes").select("*")
+    .eq("sala_id", salaId).in("estado", ["pendiente", "aprobada"]);
   solicitudes = sols || [];
 
-  const { data: archs } = await sb.from("archivos")
-    .select("*")
-    .eq("sala_id", salaId)
-    .order("enviado_en", { ascending: false });
+  const { data: archs } = await sb.from("archivos").select("*")
+    .eq("sala_id", salaId).order("enviado_en", { ascending: false });
   archivos = archs || [];
 
+  $("#sala-nombre").textContent = s.nombre;
+  $("#sala-codigo").textContent = "Código " + s.codigo;
+  document.title = `Connectalive — ${s.nombre}`;
   aplicarMiRol();
   pintar();
-  refrescarPizarra();
-  refrescarDiapositivas();
+  await aplicarVista();
+  return true;
 }
 
 function abortar(msg) {
-  document.body.innerHTML = `<main class="portada"><section class="tarjeta"><h1>Uy…</h1><p>${msg}</p><p><a href="/">Volver al inicio</a></p></section></main>`;
+  terminada = true;
+  try { room?.disconnect(); } catch {}
+  clearInterval(latido);
+  try { pizarra?.limpiar(); } catch {}
+  sb.removeAllChannels();
+  document.body.className = "pantalla-luz";
+  document.body.innerHTML = `<main class="portada"><section class="tarjeta"><h1>Uy…</h1><p>${escapar(msg)}</p><p><a class="btn btn-primario" href="/inicio">Volver al inicio</a></p></section></main>`;
+  return false;
+}
+
+function aviso(texto, ms = 4500) {
+  if (terminada) return;
+  const n = $("#aviso");
+  n.textContent = texto;
+  n.classList.remove("oculto");
+  clearTimeout(aviso._t);
+  aviso._t = setTimeout(() => n.classList.add("oculto"), ms);
 }
 
 function aplicarMiRol() {
-  $("#mi-rol").textContent = { dirigente: "Dirigente", alumno: "Alumno", oyente: "Oyente" }[miParticipante.rol];
-  $("#mi-rol").dataset.rol = miParticipante.rol;
+  $("#mi-rol").textContent = { dirigente: "Dirigente", alumno: "Alumno", oyente: "Oyente" }[yo.rol];
+  $("#mi-rol").dataset.rol = yo.rol;
 
-  // Los oyentes sin voz no ven la subida de archivos ni el botón de cámara/mic.
-  const puedeHablar = miParticipante.rol !== "oyente" || miParticipante.voz_activa;
+  const puedeHablar = yo.rol !== "oyente" || yo.voz_activa;
   $("#btn-mic").classList.toggle("oculto", !puedeHablar);
   $("#btn-cam").classList.toggle("oculto", !puedeHablar);
-  $("#btn-pantalla").classList.toggle("oculto", miParticipante.rol === "oyente" && !miParticipante.voz_activa);
+  $("#btn-pantalla").classList.toggle("oculto", !puedeHablar);
+  $("#btn-mano").classList.toggle("oculto", yo.rol !== "oyente");
+  $("#btn-pizarra").classList.toggle("oculto", yo.rol === "oyente");
+  $("#btn-invitar").classList.toggle("oculto", !soyDir());
 
-  // La mano alzada sólo la ven oyentes.
-  $("#btn-mano").classList.toggle("oculto", miParticipante.rol !== "oyente");
-
-  // Subir archivo: alumnos y dirigente. Oyentes con voz, también.
-  $("#zona-subir").classList.toggle("oculto", miParticipante.rol === "oyente" && !miParticipante.voz_activa);
-  if (miParticipante.rol === "dirigente") {
-    $("#zona-subir-pista").textContent = "Se comparte con la sala. Tú eliges destinatarios.";
-  }
+  $("#zona-subir").classList.toggle("oculto", !puedeHablar);
+  $("#zona-subir-pista").textContent = soyDir()
+    ? "Se comparte con la clase. Tú eliges a quién le llega."
+    : "Se manda al dirigente. Él decide a quién le llega.";
 }
 
 // --- Pintar UI -------------------------------------------------------------
 function pintar() {
+  if (terminada) return;
   pintarGente();
   pintarSolicitudes();
   pintarArchivos();
 }
 
 function pintarGente() {
-  const dirigentes = [], alumnos = [], oyentes = [];
-  for (const p of participantes.values()) {
-    if (p.salido_en) continue;
-    if (p.rol === "dirigente") dirigentes.push(p);
-    else if (p.rol === "alumno") alumnos.push(p);
-    else oyentes.push(p);
-  }
-
-  $("#lista-dirigente").innerHTML = dirigentes.map(fila).join("");
-  $("#lista-alumnos").innerHTML = alumnos.map(fila).join("");
-  $("#lista-oyentes").innerHTML = oyentes.map(fila).join("");
-  $("#conteo-alumnos").textContent = `(${alumnos.length})`;
-  $("#conteo-oyentes").textContent = `(${oyentes.length})`;
-
-  // Al dirigente le enseñamos los botones para cambiar el rol.
-  if (miParticipante.rol === "dirigente") {
+  const grupos = { dirigente: [], alumno: [], oyente: [] };
+  for (const p of participantes.values()) if (!p.salido_en) grupos[p.rol]?.push(p);
+  $("#lista-dirigente").innerHTML = grupos.dirigente.map(fila).join("");
+  $("#lista-alumnos").innerHTML = grupos.alumno.map(fila).join("");
+  $("#lista-oyentes").innerHTML = grupos.oyente.map(fila).join("");
+  $("#conteo-alumnos").textContent = `(${grupos.alumno.length})`;
+  $("#conteo-oyentes").textContent = `(${grupos.oyente.length})`;
+  if (soyDir()) {
     $$(".btn-rol").forEach((b) => b.addEventListener("click", onCambiarRol));
     $$(".btn-voz").forEach((b) => b.addEventListener("click", onDarQuitarVoz));
   }
 }
 
 function fila(p) {
-  const eresTu = p.user_id === user.id ? '<span class="chip-mini">tú</span>' : '';
-  const soyDir = miParticipante.rol === "dirigente";
+  const eresTu = p.user_id === user.id ? '<span class="chip-mini">tú</span>' : "";
   let acciones = "";
-  if (soyDir && p.user_id !== user.id) {
+  if (soyDir() && p.user_id !== user.id) {
     if (p.rol === "oyente") {
       acciones = `
-        <button class="btn-mini btn-rol" data-id="${p.id}" data-nuevo="alumno">Promover a alumno</button>
-        <button class="btn-mini btn-voz" data-id="${p.id}" data-voz="${p.voz_activa ? "0" : "1"}">${p.voz_activa ? "Quitar voz" : "Dar voz"}</button>
-      `;
+        <button class="btn-mini btn-rol" data-id="${p.id}" data-nuevo="alumno">Subir a alumno</button>
+        <button class="btn-mini btn-voz" data-id="${p.id}" data-voz="${p.voz_activa ? "0" : "1"}">${p.voz_activa ? "Quitar voz" : "Dar voz"}</button>`;
     } else if (p.rol === "alumno") {
       acciones = `<button class="btn-mini btn-rol" data-id="${p.id}" data-nuevo="oyente">Bajar a oyente</button>`;
     }
   }
-  const marca = p.voz_activa && p.rol === "oyente" ? '<span class="chip-mini verde">con voz</span>' : '';
+  const marca = p.voz_activa && p.rol === "oyente" ? '<span class="chip-mini verde">con voz</span>' : "";
   return `
     <li>
       <div class="gente-nombre">${escapar(p.nombre_mostrar)} ${eresTu} ${marca}</div>
       ${acciones ? `<div class="gente-acciones">${acciones}</div>` : ""}
-    </li>
-  `;
+    </li>`;
 }
+
+const etiquetaTipo = (t) => ({ mano: "levanta la mano", compartir: "quiere compartir pantalla", archivo: "quiere pasar archivo", pizarra: "quiere tomar la pizarra", presentar: "quiere presentar las diapositivas" }[t] || t);
+const etiquetaEstado = (e) => ({ pendiente: "En espera", aprobada: "Autorizada", rechazada: "Rechazada", revocada: "Cerrada" }[e] || e);
+const formatoTamano = (b) => b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1048576).toFixed(1)} MB`;
 
 function pintarSolicitudes() {
   const pendientes = solicitudes.filter((s) => s.estado === "pendiente");
-  $("#badge-sol").textContent = pendientes.length;
-  $("#badge-sol").classList.toggle("oculto", pendientes.length === 0);
-  $("#sol-vacio").classList.toggle("oculto", pendientes.length > 0);
+  const paraMi = soyDir() ? pendientes : solicitudes.filter((s) => s.participante_id === yo.id);
+  $("#badge-sol").textContent = soyDir() ? pendientes.length : "";
+  $("#badge-sol").classList.toggle("oculto", !soyDir() || pendientes.length === 0);
+  $("#sol-vacio").classList.toggle("oculto", paraMi.length > 0);
+  $("#sol-vacio").textContent = soyDir() ? "Nadie ha pedido nada." : "No has pedido nada.";
 
-  if (miParticipante.rol !== "dirigente") {
-    // Los no-dirigentes sólo ven "esperando respuesta" de sus propias solicitudes.
-    const mias = solicitudes.filter((s) => s.participante_id === miParticipante.id);
-    $("#lista-solicitudes").innerHTML = mias.map((s) => `
-      <li><div class="sol-nombre">Tu petición (${etiquetaTipo(s.tipo)})</div>
-          <div class="sol-estado">${etiquetaEstado(s.estado)}</div></li>
-    `).join("");
+  // La mano del oyente se ve levantada mientras su petición espera.
+  const mano = solicitudes.find((s) => s.participante_id === yo.id && s.tipo === "mano" && s.estado === "pendiente");
+  $("#btn-mano").classList.toggle("pulsando", !!mano);
+  $("#btn-mano").title = mano ? "Bajar la mano" : "Levantar la mano";
+
+  if (!soyDir()) {
+    $("#lista-solicitudes").innerHTML = paraMi.map((s) => `
+      <li><div class="sol-nombre">Tu petición: ${etiquetaTipo(s.tipo)}</div>
+          <div class="sol-estado">${etiquetaEstado(s.estado)}</div></li>`).join("");
     return;
   }
-
   $("#lista-solicitudes").innerHTML = pendientes.map((s) => {
     const p = participantes.get(s.participante_id);
     if (!p) return "";
     return `
       <li>
-        <div class="sol-nombre">${escapar(p.nombre_mostrar)} — ${etiquetaTipo(s.tipo)}</div>
+        <div class="sol-nombre">${escapar(p.nombre_mostrar)} ${etiquetaTipo(s.tipo)}</div>
         <div class="sol-acciones">
           <button class="btn-mini verde" data-sol="${s.id}" data-accion="aprobar">Aprobar</button>
           <button class="btn-mini" data-sol="${s.id}" data-accion="rechazar">Rechazar</button>
         </div>
-      </li>
-    `;
+      </li>`;
   }).join("");
   $$("[data-sol]").forEach((b) => b.addEventListener("click", onResolverSolicitud));
 }
 
 function pintarArchivos() {
-  const esDir = miParticipante.rol === "dirigente";
-  const visibles = archivos.filter((a) => {
-    if (esDir) return true;                                    // el dirigente ve todo
-    if (a.remitente_id === miParticipante.id) return true;      // los tuyos siempre
-    if (!a.aprobado) return false;
-    if (a.destinatarios === "todos") return true;
-    if (a.destinatarios === "alumnos" && miParticipante.rol !== "oyente") return true;
-    return false;
-  });
-  $("#lista-archivos").innerHTML = visibles.map((a) => {
+  // La base ya filtra lo que cada quien puede ver (arch_leer).
+  $("#lista-archivos").innerHTML = archivos.map((a) => {
     const rem = participantes.get(a.remitente_id);
-    const nombreRem = rem ? escapar(rem.nombre_mostrar) : "—";
-    const mio = a.remitente_id === miParticipante.id;
-    let etiquetaEstado = "";
-    if (mio && !a.aprobado) etiquetaEstado = '<span class="chip-mini">esperando al dirigente</span>';
-    if (a.aprobado) etiquetaEstado = `<span class="chip-mini verde">visible: ${a.destinatarios}</span>`;
+    const mio = a.remitente_id === yo.id;
+    let estado = "";
+    if (mio && !a.aprobado) estado = '<span class="chip-mini">esperando al dirigente</span>';
+    if (a.aprobado && soyDir()) estado = `<span class="chip-mini verde">${{ solo_dirigente: "sólo tú", alumnos: "alumnos", todos: "todos" }[a.destinatarios]}</span>`;
     let acciones = "";
-    if (esDir && !a.aprobado) {
+    if (soyDir() && !a.aprobado) {
       acciones = `<button class="btn-mini verde" data-arch="${a.id}" data-accion="autorizar">Autorizar…</button>
                   <button class="btn-mini" data-arch="${a.id}" data-accion="descartar">Descartar</button>`;
+    } else if (soyDir()) {
+      acciones = `<button class="btn-mini" data-arch="${a.id}" data-accion="descartar">Quitar</button>`;
     }
     return `
       <li>
         <div>
           <div class="arch-nombre">${escapar(a.nombre)}</div>
-          <div class="arch-meta">de ${nombreRem} · ${(a.tamano_bytes || 0) > 0 ? formatoTamano(a.tamano_bytes) : ""}</div>
-          ${etiquetaEstado}
+          <div class="arch-meta">de ${rem ? escapar(rem.nombre_mostrar) : "—"}${a.tamano_bytes ? " · " + formatoTamano(a.tamano_bytes) : ""}</div>
+          ${estado}
         </div>
         <div class="arch-acciones">
-          ${a.aprobado ? `<button class="btn-mini" data-descargar="${a.id}">Descargar</button>` : ""}
+          ${a.aprobado || soyDir() || mio ? `<button class="btn-mini" data-descargar="${a.id}">Descargar</button>` : ""}
           ${acciones}
         </div>
-      </li>
-    `;
-  }).join("");
+      </li>`;
+  }).join("") || '<li class="vacio">Todavía no hay archivos.</li>';
   $$("[data-arch]").forEach((b) => b.addEventListener("click", onArchivoAccion));
   $$("[data-descargar]").forEach((b) => b.addEventListener("click", onDescargar));
 }
 
-function escapar(t) { return String(t || "").replace(/[<>&"']/g, (c) => ({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;","'":"&#39;"}[c])); }
-function etiquetaTipo(t) { return { mano: "levanta la mano", compartir: "quiere compartir pantalla", archivo: "quiere pasar archivo", pizarra: "quiere tomar la pizarra", presentar: "quiere presentar diapositivas" }[t] || t; }
-function etiquetaEstado(e) { return { pendiente: "En espera", aprobada: "Autorizada", rechazada: "Rechazada", revocada: "Cerrada" }[e] || e; }
-function formatoTamano(b) { if (b < 1024) return `${b} B`; if (b < 1024*1024) return `${(b/1024).toFixed(1)} KB`; return `${(b/1024/1024).toFixed(1)} MB`; }
-
-// --- Handlers --------------------------------------------------------------
+// --- Roles y solicitudes (dirigente) ---------------------------------------
 async function onCambiarRol(e) {
-  const id = e.currentTarget.dataset.id;
-  const nuevo = e.currentTarget.dataset.nuevo;
-  const { error } = await sb.from("participantes").update({ rol: nuevo, voz_activa: false }).eq("id", id);
-  if (error) return alert(error.message);
-  await sincronizarPermisosLiveKit(id, nuevo === "oyente" ? "oyente" : "alumno", false);
+  const { id, nuevo } = e.currentTarget.dataset;
+  const { error } = await sb.from("participantes")
+    .update({ rol: nuevo, voz_activa: false, rol_fijado: true }).eq("id", id);
+  if (error) return aviso(error.message);
+  await sincronizarPermisos(id);
 }
 
 async function onDarQuitarVoz(e) {
-  const id = e.currentTarget.dataset.id;
-  const nueva = e.currentTarget.dataset.voz === "1";
-  const { error } = await sb.from("participantes").update({ voz_activa: nueva }).eq("id", id);
-  if (error) return alert(error.message);
-  await sincronizarPermisosLiveKit(id, "oyente", nueva);
+  const { id, voz } = e.currentTarget.dataset;
+  const { error } = await sb.from("participantes").update({ voz_activa: voz === "1" }).eq("id", id);
+  if (error) return aviso(error.message);
+  if (voz === "0") {
+    // Si tenía la mano arriba, se cierra.
+    await sb.from("solicitudes").update({ estado: "revocada", resuelta_en: new Date().toISOString() })
+      .eq("participante_id", id).eq("tipo", "mano").eq("estado", "aprobada");
+  }
+  await sincronizarPermisos(id);
 }
 
 async function onResolverSolicitud(e) {
-  const solId = e.currentTarget.dataset.sol;
-  const accion = e.currentTarget.dataset.accion;
+  const { sol: solId, accion } = e.currentTarget.dataset;
   const sol = solicitudes.find((s) => s.id === solId);
   if (!sol) return;
+  const ahora = new Date().toISOString();
 
-  if (accion === "aprobar") {
-    const nuevoEstado = { estado: "aprobada", resuelta_en: new Date().toISOString() };
-    const { error } = await sb.from("solicitudes").update(nuevoEstado).eq("id", solId);
-    if (error) return alert(error.message);
-
-    // Efecto: mano/compartir dan voz al oyente; archivo abre el diálogo;
-    // pizarra pasa el control al que la pidió.
-    if (sol.tipo === "mano" || sol.tipo === "compartir") {
-      await sb.from("participantes").update({ voz_activa: true }).eq("id", sol.participante_id);
-      await sincronizarPermisosLiveKit(sol.participante_id, "oyente", true);
-    } else if (sol.tipo === "pizarra") {
-      await sb.from("salas").update({
-        pizarra_abierta: true,
-        pizarra_controlador_id: sol.participante_id,
-      }).eq("id", salaId);
-    } else if (sol.tipo === "presentar") {
-      await sb.from("salas").update({
-        presentacion_presentador_id: sol.participante_id,
-      }).eq("id", salaId);
-    }
-  } else {
-    await sb.from("solicitudes").update({ estado: "rechazada", resuelta_en: new Date().toISOString() }).eq("id", solId);
-  }
-}
-
-async function sincronizarPermisosLiveKit(participanteId, rolBase, vozActiva) {
-  const puedePublicar = rolBase !== "oyente" || vozActiva;
-  try {
-    const { data: { session } } = await sb.auth.getSession();
-    await fetch(PERMISO_ENDPOINT, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${session.access_token}` },
-      body: JSON.stringify({ salaId, participanteId, puedePublicar }),
-    });
-  } catch (err) {
-    console.warn("no se pudo mover permiso en LiveKit", err);
-  }
-}
-
-// --- Subir/aprobar/descargar archivos --------------------------------------
-$("#input-archivo").addEventListener("change", async (e) => {
-  const f = e.target.files[0];
-  if (!f) return;
-  e.target.value = "";
-
-  const nombreLimpio = f.name.replace(/[^\w.\-]+/g, "_");
-  const ruta = `${salaId}/${miParticipante.id}/${Date.now()}_${nombreLimpio}`;
-
-  const { error: eUp } = await sb.storage.from(STORAGE_BUCKET).upload(ruta, f, { upsert: false });
-  if (eUp) return alert("No se pudo subir: " + eUp.message);
-
-  const esDir = miParticipante.rol === "dirigente";
-  if (esDir) {
-    // El dirigente elige destinatarios antes de insertar.
-    $("#dlg-archivo-nombre").textContent = f.name;
-    const dlg = $("#dlg-destinatarios");
-    dlg.returnValue = "";
-    dlg.showModal();
-    dlg.addEventListener("close", async function finalizar() {
-      dlg.removeEventListener("close", finalizar);
-      if (dlg.returnValue !== "ok") {
-        await sb.storage.from(STORAGE_BUCKET).remove([ruta]);
-        return;
-      }
-      const dest = dlg.querySelector('input[name="dest"]:checked').value;
-      await sb.from("archivos").insert({
-        sala_id: salaId,
-        remitente_id: miParticipante.id,
-        nombre: f.name,
-        storage_path: ruta,
-        tamano_bytes: f.size,
-        destinatarios: dest,
-        aprobado: true,
-        aprobado_por: miParticipante.id,
-        aprobado_en: new Date().toISOString(),
-      });
-    }, { once: true });
+  if (accion !== "aprobar") {
+    await sb.from("solicitudes").update({ estado: "rechazada", resuelta_en: ahora }).eq("id", solId);
     return;
   }
+  const { error } = await sb.from("solicitudes").update({ estado: "aprobada", resuelta_en: ahora }).eq("id", solId);
+  if (error) return aviso(error.message);
 
-  // Cualquiera que no es dirigente: queda como no aprobado. El dirigente autoriza.
-  await sb.from("archivos").insert({
-    sala_id: salaId,
-    remitente_id: miParticipante.id,
-    nombre: f.name,
-    storage_path: ruta,
-    tamano_bytes: f.size,
-    destinatarios: "solo_dirigente",
-    aprobado: false,
+  const p = participantes.get(sol.participante_id);
+  if (sol.tipo === "mano" || (sol.tipo === "compartir" && p?.rol === "oyente")) {
+    // Hablar o compartir pantalla pide publicar en LiveKit: al oyente se le da voz.
+    await sb.from("participantes").update({ voz_activa: true }).eq("id", sol.participante_id);
+    await sincronizarPermisos(sol.participante_id);
+  } else if (sol.tipo === "pizarra") {
+    await sb.from("salas").update({ pizarra_abierta: true, pizarra_controlador_id: sol.participante_id }).eq("id", salaId);
+  } else if (sol.tipo === "presentar") {
+    await sb.from("salas").update({ presentacion_presentador_id: sol.participante_id }).eq("id", salaId);
+  }
+}
+
+async function sincronizarPermisos(participanteId) {
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    const r = await fetch(PERMISO_ENDPOINT, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ salaId, participanteId }),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `permiso ${r.status}`);
+  } catch (err) {
+    aviso(`El cambio quedó guardado, pero el video no lo reflejó: ${err.message}`);
+  }
+}
+
+// --- Archivos ----------------------------------------------------------------
+function elegirDestinatarios(nombre) {
+  return new Promise((res) => {
+    $("#dlg-archivo-nombre").textContent = nombre;
+    const dlg = $("#dlg-destinatarios");
+    dlg.returnValue = "";
+    dlg.addEventListener("close", () => {
+      res(dlg.returnValue === "ok" ? dlg.querySelector('input[name="dest"]:checked').value : null);
+    }, { once: true });
+    dlg.showModal();
   });
+}
+
+$("#input-archivo").addEventListener("change", async (e) => {
+  const f = e.target.files[0];
+  e.target.value = "";
+  if (!f) return;
+  if (f.size > 50 * 1024 * 1024) return aviso("El archivo debe pesar menos de 50 MB.");
+
+  const ruta = `${salaId}/${yo.id}/${Date.now()}_${f.name.replace(/[^\w.\-]+/g, "_")}`;
+  let dest = "solo_dirigente";
+  if (soyDir()) {
+    dest = await elegirDestinatarios(f.name);
+    if (!dest) return;
+  }
+  aviso(`Subiendo ${f.name}…`, 60000);
+  const { error: eUp } = await sb.storage.from(STORAGE_BUCKET).upload(ruta, f, { upsert: false });
+  if (eUp) return aviso("No se pudo subir: " + eUp.message);
+
+  const fila = {
+    sala_id: salaId, remitente_id: yo.id, nombre: f.name, storage_path: ruta,
+    tamano_bytes: f.size, destinatarios: dest, aprobado: soyDir(),
+  };
+  if (soyDir()) Object.assign(fila, { aprobado_por: yo.id, aprobado_en: new Date().toISOString() });
+  const { error } = await sb.from("archivos").insert(fila);
+  if (error) {
+    await sb.storage.from(STORAGE_BUCKET).remove([ruta]).catch(() => {});
+    return aviso("No se pudo registrar el archivo: " + error.message);
+  }
+  aviso(soyDir() ? "Archivo compartido." : "Archivo enviado al dirigente.");
 });
 
 async function onArchivoAccion(e) {
-  const id = e.currentTarget.dataset.arch;
-  const accion = e.currentTarget.dataset.accion;
+  const { arch: id, accion } = e.currentTarget.dataset;
   const a = archivos.find((x) => x.id === id);
   if (!a) return;
   if (accion === "descartar") {
-    await sb.storage.from(STORAGE_BUCKET).remove([a.storage_path]);
-    await sb.from("archivos").delete().eq("id", id);
+    if (!confirm(`¿Quitar «${a.nombre}»?`)) return;
+    const { error } = await sb.from("archivos").delete().eq("id", id);
+    if (error) return aviso(error.message);
+    await sb.storage.from(STORAGE_BUCKET).remove([a.storage_path]).catch(() => {});
     return;
   }
   if (accion === "autorizar") {
-    $("#dlg-archivo-nombre").textContent = a.nombre;
-    const dlg = $("#dlg-destinatarios");
-    dlg.returnValue = "";
-    dlg.showModal();
-    dlg.addEventListener("close", async function fin() {
-      dlg.removeEventListener("close", fin);
-      if (dlg.returnValue !== "ok") return;
-      const dest = dlg.querySelector('input[name="dest"]:checked').value;
-      await sb.from("archivos").update({
-        aprobado: true,
-        destinatarios: dest,
-        aprobado_por: miParticipante.id,
-        aprobado_en: new Date().toISOString(),
-      }).eq("id", id);
-    }, { once: true });
+    const dest = await elegirDestinatarios(a.nombre);
+    if (!dest) return;
+    const { error } = await sb.from("archivos").update({
+      aprobado: true, destinatarios: dest, aprobado_por: yo.id, aprobado_en: new Date().toISOString(),
+    }).eq("id", id);
+    if (error) aviso(error.message);
   }
 }
 
 async function onDescargar(e) {
-  const id = e.currentTarget.dataset.descargar;
-  const a = archivos.find((x) => x.id === id);
+  const a = archivos.find((x) => x.id === e.currentTarget.dataset.descargar);
   if (!a) return;
-  const { data, error } = await sb.storage.from(STORAGE_BUCKET).createSignedUrl(a.storage_path, 300);
-  if (error) return alert(error.message);
+  const { data, error } = await sb.storage.from(STORAGE_BUCKET).createSignedUrl(a.storage_path, 300, { download: a.nombre });
+  if (error) return aviso(error.message);
   window.open(data.signedUrl, "_blank");
 }
 
-// --- Mano alzada -----------------------------------------------------------
+// --- Mano alzada -------------------------------------------------------------
 $("#btn-mano").addEventListener("click", async () => {
-  const existe = solicitudes.find((s) => s.participante_id === miParticipante.id && s.tipo === "mano" && s.estado === "pendiente");
+  const existe = solicitudes.find((s) => s.participante_id === yo.id && s.tipo === "mano" && s.estado === "pendiente");
   if (existe) {
-    await sb.from("solicitudes").update({ estado: "revocada", resuelta_en: new Date().toISOString() }).eq("id", existe.id);
-    $("#btn-mano").classList.remove("pulsando");
+    const { error } = await sb.from("solicitudes")
+      .update({ estado: "revocada", resuelta_en: new Date().toISOString() }).eq("id", existe.id);
+    if (error) aviso(error.message);
     return;
   }
-  const { error } = await sb.from("solicitudes").insert({
-    sala_id: salaId,
-    participante_id: miParticipante.id,
-    tipo: "mano",
-  });
-  if (error) return alert(error.message);
-  $("#btn-mano").classList.add("pulsando");
+  const { error } = await sb.from("solicitudes").insert({ sala_id: salaId, participante_id: yo.id, tipo: "mano" });
+  if (error) return aviso(error.message);
+  aviso("Levantaste la mano. El dirigente te dará la palabra.");
 });
 
-// --- Controles de mic/cámara/pantalla en LiveKit ---------------------------
-$("#btn-mic").addEventListener("click", async () => {
-  if (!room) return;
-  const activo = room.localParticipant.isMicrophoneEnabled;
-  await room.localParticipant.setMicrophoneEnabled(!activo);
-  $("#btn-mic").dataset.estado = !activo ? "on" : "off";
-});
-$("#btn-cam").addEventListener("click", async () => {
-  if (!room) return;
-  const activo = room.localParticipant.isCameraEnabled;
-  await room.localParticipant.setCameraEnabled(!activo);
-  $("#btn-cam").dataset.estado = !activo ? "on" : "off";
-});
-$("#btn-pantalla").addEventListener("click", async () => {
-  if (!room) return;
-  if (miParticipante.rol !== "dirigente") {
-    // Alumno / oyente con voz: pide permiso al dirigente antes de compartir.
-    const yaPide = solicitudes.find((s) => s.participante_id === miParticipante.id && s.tipo === "compartir" && s.estado === "pendiente");
-    if (!yaPide) {
-      await sb.from("solicitudes").insert({ sala_id: salaId, participante_id: miParticipante.id, tipo: "compartir" });
-      alert("Le pedí permiso al dirigente para compartir tu pantalla.");
-      return;
+// --- Micrófono, cámara y pantalla ---------------------------------------------
+async function alternar(boton, activo, fn) {
+  if (!room) return aviso("El video todavía se está conectando.");
+  try {
+    await fn(!activo);
+    boton.dataset.estado = !activo ? "on" : "off";
+  } catch (err) {
+    aviso(/permission|denied|NotAllowed/i.test(err.message || err.name)
+      ? "El navegador no dio permiso. Revísalo en el candado de la barra de direcciones."
+      : err.message || "No se pudo");
+  }
+}
+$("#btn-mic").addEventListener("click", (e) =>
+  alternar(e.currentTarget, room?.localParticipant.isMicrophoneEnabled, (v) => room.localParticipant.setMicrophoneEnabled(v)));
+$("#btn-cam").addEventListener("click", (e) =>
+  alternar(e.currentTarget, room?.localParticipant.isCameraEnabled, (v) => room.localParticipant.setCameraEnabled(v)));
+
+$("#btn-pantalla").addEventListener("click", async (e) => {
+  if (!room) return aviso("El video todavía se está conectando.");
+  const b = e.currentTarget;
+  const comparto = room.localParticipant.isScreenShareEnabled;
+  if (!soyDir() && !comparto) {
+    // Alumno / oyente con voz: necesita que el dirigente lo apruebe.
+    const aprobada = solicitudes.find((s) => s.participante_id === yo.id && s.tipo === "compartir" && s.estado === "aprobada");
+    if (!aprobada) {
+      const pendiente = solicitudes.find((s) => s.participante_id === yo.id && s.tipo === "compartir" && s.estado === "pendiente");
+      if (pendiente) return aviso("Ya le pediste permiso al dirigente. Espera su respuesta.");
+      const { error } = await sb.from("solicitudes").insert({ sala_id: salaId, participante_id: yo.id, tipo: "compartir" });
+      if (error) return aviso(error.message);
+      return aviso("Le pediste permiso al dirigente para compartir tu pantalla.");
     }
-    return;
   }
-  // El dirigente comparte directo.
-  await toggleCompartirPantalla();
+  await alternar(b, comparto, (v) => room.localParticipant.setScreenShareEnabled(v));
+  // Al dejar de compartir, el permiso se gasta: la próxima vez se vuelve a pedir.
+  if (comparto && !soyDir()) {
+    const aprobada = solicitudes.find((s) => s.participante_id === yo.id && s.tipo === "compartir" && s.estado === "aprobada");
+    if (aprobada) await sb.from("solicitudes").update({ estado: "revocada", resuelta_en: new Date().toISOString() }).eq("id", aprobada.id);
+  }
 });
 
-async function toggleCompartirPantalla() {
-  const yaComparte = room.localParticipant.isScreenShareEnabled;
-  await room.localParticipant.setScreenShareEnabled(!yaComparte);
-  $("#btn-pantalla").dataset.estado = !yaComparte ? "on" : "off";
+// --- Vista principal: video, pizarra o diapositivas ---------------------------
+// La pizarra abierta manda sobre las diapositivas; si no, las diapositivas
+// (si hay PDF); si no, el video.
+async function aplicarVista() {
+  if (terminada) return;
+  const pz = !!sala.pizarra_abierta;
+  const dp = !pz && !!sala.presentacion_storage_path;
+  $("#pizarra").classList.toggle("oculto", !pz);
+  $("#diapositivas").classList.toggle("oculto", !dp);
+  $("#tarima").classList.toggle("oculto", pz || dp);
+  $("#btn-pizarra").dataset.estado = pz ? "on" : "off";
+  $("#btn-diapositivas").dataset.estado = dp ? "on" : "off";
+  $("#btn-diapositivas").classList.toggle("oculto", yo.rol === "oyente");
+  refrescarPizarra();
+  await refrescarDiapositivas(dp);
+  pintarVideos();
 }
 
-// --- Pizarra ---------------------------------------------------------------
-$("#btn-pizarra").addEventListener("click", async () => {
-  // Dirigente: la abre/cierra directo y él toma el control por defecto.
-  if (miParticipante.rol === "dirigente") {
-    const abrir = !sala.pizarra_abierta;
-    const actualizacion = abrir
-      ? { pizarra_abierta: true, pizarra_controlador_id: miParticipante.id }
-      : { pizarra_abierta: false, pizarra_controlador_id: null };
-    const { error } = await sb.from("salas").update(actualizacion).eq("id", salaId);
-    if (error) return alert(error.message);
-    return;
-  }
-  // Alumno con la pizarra ya abierta: pide el control.
-  if (miParticipante.rol === "alumno" && sala.pizarra_abierta) {
-    const yaPide = solicitudes.find((s) =>
-      s.participante_id === miParticipante.id && s.tipo === "pizarra" && s.estado === "pendiente");
-    if (yaPide) return;
-    await sb.from("solicitudes").insert({
-      sala_id: salaId, participante_id: miParticipante.id, tipo: "pizarra",
-    });
-    alert("Le pedí permiso al dirigente para tomar la pizarra.");
-    return;
-  }
-  // Oyentes: nada; el botón está oculto para ellos.
-});
-
+// --- Pizarra -----------------------------------------------------------------
 function refrescarPizarra() {
   const abierta = !!sala.pizarra_abierta;
-  const soyControlador = sala.pizarra_controlador_id === miParticipante.id;
-  const soyDirigente = miParticipante.rol === "dirigente";
-
-  $("#tarima").classList.toggle("oculto", abierta);
-  $("#pizarra").classList.toggle("oculto", !abierta);
-  $("#btn-pizarra").dataset.estado = abierta ? "on" : "off";
-
-  if (abierta && !pizarra) {
-    pizarra = crearPizarra({
-      salaId, sb,
-      participanteId: miParticipante.id,
-      esControlador: soyControlador,
-      esDirigente: soyDirigente,
-    });
-  } else if (abierta && pizarra) {
-    pizarra.setControlador(soyControlador);
-    pizarra.setDirigente(soyDirigente);
-  } else if (!abierta && pizarra) {
-    pizarra.limpiar();
-    pizarra = null;
-  }
-
-  // Etiqueta de estado en la toolbar.
-  const estadoLbl = $("#pz-estado-control");
-  if (estadoLbl && abierta) {
-    if (soyControlador) estadoLbl.textContent = "Tú controlas";
-    else {
-      const c = participantes.get(sala.pizarra_controlador_id);
-      estadoLbl.textContent = c ? `Controla: ${c.nombre_mostrar}` : "Nadie controla";
-    }
-  }
-
-  // Ocultar el botón de pizarra a los oyentes.
-  $("#btn-pizarra").classList.toggle("oculto", miParticipante.rol === "oyente");
-
-  // Repintar los videos en el destino correcto (tarima o tira).
-  if (window.__repintarVideos) window.__repintarVideos();
+  const controlo = sala.pizarra_controlador_id === yo.id;
+  if (abierta && !pizarra) pizarra = crearPizarra({ sb, salaId, alError: aviso });
+  if (!abierta && pizarra) { pizarra.limpiar(); pizarra = null; }
+  if (!pizarra) return;
+  pizarra.setControlador(controlo);
+  const c = participantes.get(sala.pizarra_controlador_id);
+  $("#pz-estado-control").textContent = controlo ? "Tú escribes" : c ? `Escribe: ${c.nombre_mostrar}` : "Nadie escribe";
+  $("#pz-recuperar").classList.toggle("oculto", !soyDir() || controlo);
+  $("#pz-cerrar").classList.toggle("oculto", !soyDir());
 }
 
-// --- Diapositivas ----------------------------------------------------------
+async function actualizarSala(cambios) {
+  const { error } = await sb.from("salas").update(cambios).eq("id", salaId);
+  if (error) aviso(error.message);
+}
+
+$("#btn-pizarra").addEventListener("click", async () => {
+  if (soyDir()) {
+    if (!sala.pizarra_abierta) return actualizarSala({ pizarra_abierta: true, pizarra_controlador_id: yo.id });
+    if (sala.pizarra_controlador_id !== yo.id) return actualizarSala({ pizarra_controlador_id: yo.id });
+    return actualizarSala({ pizarra_abierta: false });
+  }
+  if (yo.rol !== "alumno") return;
+  if (!sala.pizarra_abierta) return aviso("El dirigente todavía no abre la pizarra.");
+  if (sala.pizarra_controlador_id === yo.id) return aviso("Ya tienes la pizarra.");
+  const yaPide = solicitudes.find((s) => s.participante_id === yo.id && s.tipo === "pizarra" && s.estado === "pendiente");
+  if (yaPide) return aviso("Ya pediste la pizarra. Espera al dirigente.");
+  const { error } = await sb.from("solicitudes").insert({ sala_id: salaId, participante_id: yo.id, tipo: "pizarra" });
+  aviso(error ? error.message : "Le pediste la pizarra al dirigente.");
+});
+$("#pz-recuperar").addEventListener("click", () => actualizarSala({ pizarra_controlador_id: yo.id }));
+$("#pz-cerrar").addEventListener("click", () => actualizarSala({ pizarra_abierta: false }));
+$("#pz-fullscreen").addEventListener("click", () => pantallaCompleta($("#pizarra")));
+
+// --- Diapositivas --------------------------------------------------------------
+async function refrescarDiapositivas(visible) {
+  const ruta = sala.presentacion_storage_path;
+  if (!ruta && visor) { await visor.destruir(); visor = null; pdfCargado = null; }
+  if (!ruta || !visible) return;
+
+  if (!visor || pdfCargado !== ruta) {
+    if (visor) { await visor.destruir(); visor = null; }
+    const { data, error } = await sb.storage.from(STORAGE_BUCKET).createSignedUrl(ruta, 60 * 60 * 6);
+    if (error) return aviso("No se pudo abrir la presentación: " + error.message);
+    try {
+      visor = await crearVisor({ fuente: data.signedUrl, canvas: $("#dp-canvas"), contenedor: $("#dp-caja") });
+    } catch (err) {
+      return aviso(err.message || "No se pudo abrir el PDF");
+    }
+    pdfCargado = ruta;
+  }
+  await visor.ir(sala.presentacion_pagina_actual || 1);
+
+  const presento = sala.presentacion_presentador_id === yo.id;
+  const total = sala.presentacion_paginas || visor.total;
+  $("#dp-pagina").textContent = `${sala.presentacion_pagina_actual} / ${total}`;
+  $("#dp-nombre").textContent = sala.presentacion_nombre || "";
+  $("#dp-anterior").disabled = !presento || sala.presentacion_pagina_actual <= 1;
+  $("#dp-siguiente").disabled = !presento || sala.presentacion_pagina_actual >= total;
+  $("#dp-cerrar").classList.toggle("oculto", !soyDir());
+  $("#dp-tomar").classList.toggle("oculto", !soyDir() || presento);
+  const pres = participantes.get(sala.presentacion_presentador_id);
+  $("#dp-estado").textContent = presento ? "Tú presentas" : pres ? `Presenta: ${pres.nombre_mostrar}` : "Nadie presenta";
+}
+
 $("#btn-diapositivas").addEventListener("click", async () => {
   const hay = !!sala.presentacion_storage_path;
-  const soyDir = miParticipante.rol === "dirigente";
-
-  if (!hay && soyDir) {
-    // Sin presentación cargada — abre el "vacío" con botón de subir.
-    await sb.from("salas").update({
-      pizarra_abierta: false,          // no puedes tener las dos abiertas
-      presentacion_storage_path: null, // se abrirá al subir
-    }).eq("id", salaId);
-    // Truquillo: para forzar mostrar la vista vacía sin sub-presentación aún,
-    // marcamos una "sesión de subida" cambiando la página a -1.
-    // Más simple: sólo abrimos el input.
-    $("#dp-input").click();
-    return;
+  if (soyDir()) {
+    if (!hay) return $("#dp-input").click();
+    if (sala.pizarra_abierta) return actualizarSala({ pizarra_abierta: false });
+    return cerrarPresentacion();
   }
-  if (!hay && !soyDir) {
-    alert("El dirigente todavía no ha cargado una presentación.");
-    return;
-  }
-  // Ya hay presentación — el botón la abre/cierra la VISTA (no borra la
-  // presentación cargada). Sólo el dirigente cierra del todo.
-  const abierta = document.getElementById("diapositivas") && !$("#diapositivas").classList.contains("oculto");
-  if (soyDir && abierta) {
-    await sb.from("salas").update({
-      presentacion_storage_path: null,
-      presentacion_nombre: null,
-      presentacion_paginas: null,
-      presentacion_pagina_actual: 1,
-      presentacion_presentador_id: null,
-    }).eq("id", salaId);
-    // Y borra el archivo de Storage
-    if (sala.presentacion_storage_path) {
-      sb.storage.from(STORAGE_BUCKET).remove([sala.presentacion_storage_path]).catch(() => {});
-    }
-    return;
-  }
-  // Alumno: pide presentar
-  if (miParticipante.rol === "alumno" && hay && sala.presentacion_presentador_id !== miParticipante.id) {
-    const yaPide = solicitudes.find((s) =>
-      s.participante_id === miParticipante.id && s.tipo === "presentar" && s.estado === "pendiente");
-    if (yaPide) return;
-    await sb.from("solicitudes").insert({
-      sala_id: salaId, participante_id: miParticipante.id, tipo: "presentar",
-    });
-    alert("Le pedí permiso al dirigente para tomar el control de las diapositivas.");
-  }
+  if (!hay) return aviso("El dirigente todavía no carga una presentación.");
+  if (sala.presentacion_presentador_id === yo.id) return aviso("Ya estás presentando: usa las flechas.");
+  const yaPide = solicitudes.find((s) => s.participante_id === yo.id && s.tipo === "presentar" && s.estado === "pendiente");
+  if (yaPide) return aviso("Ya pediste presentar. Espera al dirigente.");
+  const { error } = await sb.from("solicitudes").insert({ sala_id: salaId, participante_id: yo.id, tipo: "presentar" });
+  aviso(error ? error.message : "Le pediste al dirigente controlar las diapositivas.");
 });
+
+async function cerrarPresentacion() {
+  if (!confirm("¿Cerrar la presentación? Se borra el PDF.")) return;
+  const ruta = sala.presentacion_storage_path;
+  await actualizarSala({
+    presentacion_storage_path: null, presentacion_nombre: null, presentacion_paginas: null,
+    presentacion_pagina_actual: 1, presentacion_presentador_id: null,
+  });
+  if (ruta) sb.storage.from(STORAGE_BUCKET).remove([ruta]).catch(() => {});
+}
 
 $("#dp-input").addEventListener("change", async (e) => {
   const f = e.target.files[0];
-  if (!f) return;
   e.target.value = "";
-  if (f.type !== "application/pdf") { alert("Debe ser un PDF."); return; }
-
-  const ruta = `presentaciones/${salaId}/${Date.now()}_${f.name.replace(/[^\w.\-]+/g, "_")}`;
-  const { error: eUp } = await sb.storage.from(STORAGE_BUCKET).upload(ruta, f, { upsert: false });
-  if (eUp) return alert("No se pudo subir: " + eUp.message);
-
-  // Contamos páginas cargando el PDF localmente antes de anunciar la subida.
-  const pdfjs = await cargarPdfjs();
-  const arr = await f.arrayBuffer();
-  const doc = await pdfjs.getDocument({ data: arr }).promise;
-  const paginas = doc.numPages;
-  await doc.destroy();
-
-  await sb.from("salas").update({
-    presentacion_storage_path: ruta,
-    presentacion_nombre: f.name,
-    presentacion_paginas: paginas,
-    presentacion_pagina_actual: 1,
-    presentacion_presentador_id: miParticipante.id,
-    pizarra_abierta: false,
-  }).eq("id", salaId);
-});
-
-async function urlFirmadaPresentacion() {
-  if (!sala.presentacion_storage_path) return null;
-  const { data, error } = await sb.storage
-    .from(STORAGE_BUCKET)
-    .createSignedUrl(sala.presentacion_storage_path, 60 * 60 * 3);
-  if (error) return null;
-  return data.signedUrl;
-}
-
-async function refrescarDiapositivas() {
-  const hay = !!sala.presentacion_storage_path;
-  const dp = $("#diapositivas");
-
-  // Mostrar/ocultar la sección
-  dp.classList.toggle("oculto", !hay);
-  $("#btn-diapositivas").dataset.estado = hay ? "on" : "off";
-  $("#btn-diapositivas").classList.toggle("oculto", miParticipante.rol === "oyente" && !hay);
-
-  // Si la pizarra está abierta y las diapos también, la pizarra manda.
-  if (hay) {
-    $("#tarima").classList.add("oculto");
-    if (pizarra) $("#pizarra").classList.add("oculto");
-  }
-
-  if (!hay) {
-    if (visorDiapo) { await visorDiapo.destruir().catch(() => {}); visorDiapo = null; ultimoStorageDiapo = null; }
-    return;
-  }
-
-  // Cargar el PDF si cambió (o si aún no hay visor)
-  if (!visorDiapo || ultimoStorageDiapo !== sala.presentacion_storage_path) {
-    if (visorDiapo) { try { await visorDiapo.destruir(); } catch {} visorDiapo = null; }
-    const url = await urlFirmadaPresentacion();
-    if (!url) return;
-    visorDiapo = await crearVisorDiapositivas({
-      url,
-      contenedorCanvas: $("#dp-canvas"),
+  if (!f) return;
+  if (f.type !== "application/pdf" && !f.name.toLowerCase().endsWith(".pdf")) return aviso("Tiene que ser un PDF.");
+  aviso("Subiendo la presentación…", 60000);
+  try {
+    const paginas = await contarPaginas(f);
+    const ruta = `presentaciones/${salaId}/${Date.now()}_${f.name.replace(/[^\w.\-]+/g, "_")}`;
+    const { error: eUp } = await sb.storage.from(STORAGE_BUCKET).upload(ruta, f, { upsert: false, contentType: "application/pdf" });
+    if (eUp) throw eUp;
+    const anterior = sala.presentacion_storage_path;
+    await actualizarSala({
+      presentacion_storage_path: ruta, presentacion_nombre: f.name, presentacion_paginas: paginas,
+      presentacion_pagina_actual: 1, presentacion_presentador_id: yo.id, pizarra_abierta: false,
     });
-    ultimoStorageDiapo = sala.presentacion_storage_path;
-    await visorDiapo.ir(sala.presentacion_pagina_actual || 1);
-  } else {
-    // Sólo cambió la página
-    if (visorDiapo.pagina !== sala.presentacion_pagina_actual) {
-      await visorDiapo.ir(sala.presentacion_pagina_actual);
-    }
+    if (anterior) sb.storage.from(STORAGE_BUCKET).remove([anterior]).catch(() => {});
+    aviso("Presentación lista.");
+  } catch (err) {
+    aviso("No se pudo subir: " + (err.message || err));
   }
-
-  // Toolbar
-  $("#dp-pagina").textContent = `${sala.presentacion_pagina_actual} / ${sala.presentacion_paginas}`;
-  $("#dp-nombre").textContent = sala.presentacion_nombre || "";
-  const soyPresentador = sala.presentacion_presentador_id === miParticipante.id;
-  const soyDir = miParticipante.rol === "dirigente";
-  $("#dp-anterior").disabled = !soyPresentador || sala.presentacion_pagina_actual <= 1;
-  $("#dp-siguiente").disabled = !soyPresentador || sala.presentacion_pagina_actual >= (sala.presentacion_paginas || 1);
-  $("#dp-cerrar").classList.toggle("oculto", !soyDir);
-  const presentador = participantes.get(sala.presentacion_presentador_id);
-  $("#dp-estado").textContent = soyPresentador ? "Tú presentas" : (presentador ? `Presenta: ${presentador.nombre_mostrar}` : "Nadie presenta");
-
-  if (window.__repintarVideos) window.__repintarVideos();
-}
+});
 
 async function cambiarPagina(delta) {
-  if (sala.presentacion_presentador_id !== miParticipante.id) return;
-  const nueva = Math.max(1, Math.min((sala.presentacion_pagina_actual || 1) + delta, sala.presentacion_paginas || 1));
+  if (sala.presentacion_presentador_id !== yo.id) return;
+  const total = sala.presentacion_paginas || 1;
+  const nueva = Math.max(1, Math.min((sala.presentacion_pagina_actual || 1) + delta, total));
   if (nueva === sala.presentacion_pagina_actual) return;
-  await sb.from("salas").update({ presentacion_pagina_actual: nueva }).eq("id", salaId);
+  const { error } = await sb.rpc("sala_ir_a_pagina", { p_sala: salaId, p_pagina: nueva });
+  if (error) aviso(error.message);
 }
-
 $("#dp-anterior").addEventListener("click", () => cambiarPagina(-1));
 $("#dp-siguiente").addEventListener("click", () => cambiarPagina(1));
-$("#dp-cerrar").addEventListener("click", () => $("#btn-diapositivas").click());
+$("#dp-cerrar").addEventListener("click", cerrarPresentacion);
+$("#dp-tomar").addEventListener("click", () => actualizarSala({ presentacion_presentador_id: yo.id }));
+$("#dp-fullscreen").addEventListener("click", () => pantallaCompleta($("#diapositivas")));
 
-// Teclado: flechas ←/→/PageUp/PageDown para el presentador
 document.addEventListener("keydown", (e) => {
-  if (!sala || sala.presentacion_presentador_id !== miParticipante?.id) return;
-  if (["INPUT","TEXTAREA","SELECT"].includes(document.activeElement?.tagName)) return;
-  if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); cambiarPagina(-1); }
-  else if (e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") { e.preventDefault(); cambiarPagina(1); }
+  if (!sala || sala.pizarra_abierta || sala.presentacion_presentador_id !== yo?.id) return;
+  if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) return;
+  if (["ArrowLeft", "PageUp"].includes(e.key)) { e.preventDefault(); cambiarPagina(-1); }
+  else if (["ArrowRight", "PageDown", " "].includes(e.key)) { e.preventDefault(); cambiarPagina(1); }
 });
 
-// Pantalla completa (pizarra y diapositivas)
-function pedirFullscreen(el) {
-  if (document.fullscreenElement) document.exitFullscreen();
-  else (el.requestFullscreen || el.webkitRequestFullscreen || (() => {})).call(el);
-}
-$("#pz-fullscreen").addEventListener("click", () => pedirFullscreen($("#pizarra")));
-$("#dp-fullscreen").addEventListener("click", () => pedirFullscreen($("#diapositivas")));
-
-// --- Tabs del panel lateral ------------------------------------------------
+// --- Pestañas, invitar y salir ------------------------------------------------
 $$(".panel-tabs .tab").forEach((t) => t.addEventListener("click", () => {
-  $$(".panel-tabs .tab").forEach((x) => x.classList.remove("activo"));
-  t.classList.add("activo");
-  const name = t.dataset.tab;
-  $$(".tab-contenido").forEach((c) => c.classList.toggle("activo", c.dataset.tab === name));
+  $$(".panel-tabs .tab").forEach((x) => x.classList.toggle("activo", x === t));
+  $$(".tab-contenido").forEach((c) => c.classList.toggle("activo", c.dataset.tab === t.dataset.tab));
 }));
 
-$("#btn-salir").addEventListener("click", async () => {
-  try { if (room) await room.disconnect(); } catch {}
-  await sb.from("participantes").update({ salido_en: new Date().toISOString() }).eq("id", miParticipante.id);
-  // Si el dirigente sale, cierra la sala.
-  if (miParticipante.rol === "dirigente") {
-    await sb.from("salas").update({ cerrada_en: new Date().toISOString() }).eq("id", salaId);
+$("#btn-invitar").addEventListener("click", async () => {
+  const { data: codigoAlumnos, error } = await sb.rpc("sala_codigo_alumnos", { p_sala: salaId });
+  if (error) return aviso(error.message);
+  const publico = `${location.origin}/s/${sala.codigo}`;
+  $("#inv-publico").textContent = publico;
+  $("#inv-alumnos").textContent = `${publico}?a=${codigoAlumnos}`;
+  $("#dlg-invitar").showModal();
+});
+$$("[data-copiar]").forEach((b) => b.addEventListener("click", () => copiar(b, $("#" + b.dataset.copiar).textContent)));
+$("#inv-cerrar").addEventListener("click", () => $("#dlg-invitar").close());
+
+$("#btn-salir").addEventListener("click", () => {
+  $("#btn-terminar").classList.toggle("oculto", !soyDir());
+  $("#salir-pista").textContent = soyDir()
+    ? "Si sólo sales, la clase sigue abierta y puedes volver desde Inicio. «Terminar para todos» la cierra y borra sus archivos."
+    : "Puedes volver a entrar desde Inicio mientras la clase siga abierta.";
+  $("#dlg-salir").showModal();
+});
+$("#dlg-salir").addEventListener("close", async () => {
+  const v = $("#dlg-salir").returnValue;
+  if (v !== "salir" && v !== "terminar") return;
+  try { await room?.disconnect(); } catch {}
+  clearInterval(latido);
+  if (v === "terminar") {
+    // Con la clase cerrada ya nadie puede entrar a bajar nada: se borran los
+    // archivos y el PDF para no dejarlos para siempre en Storage.
+    const rutas = archivos.map((a) => a.storage_path);
+    if (sala.presentacion_storage_path) rutas.push(sala.presentacion_storage_path);
+    if (rutas.length) await sb.storage.from(STORAGE_BUCKET).remove(rutas).catch(() => {});
   }
-  await salir();
-  location.replace("/");
+  await sb.rpc("salir_de_sala", { p_sala: salaId, p_terminar: v === "terminar" });
+  location.replace("/inicio");
 });
 
-// --- Realtime --------------------------------------------------------------
+// --- Realtime ----------------------------------------------------------------
 function suscribir() {
   sb.channel(`sala-${salaId}`)
     .on("postgres_changes", { event: "UPDATE", schema: "connectalive", table: "salas", filter: `id=eq.${salaId}` },
-      (payload) => {
+      async ({ new: nueva }) => {
         const antes = sala;
-        sala = payload.new;
+        // Realtime manda el renglón entero; se conserva sólo lo que usamos.
+        sala = Object.fromEntries(COLS_SALA.split(",").map((k) => [k, nueva[k]]));
+        if (sala.cerrada_en) return abortar("El dirigente terminó la clase. ¡Gracias por venir!");
         $("#sala-nombre").textContent = sala.nombre;
-        if (antes.pizarra_abierta !== sala.pizarra_abierta
-          || antes.pizarra_controlador_id !== sala.pizarra_controlador_id) {
-          refrescarPizarra();
+        const cambio = ["pizarra_abierta", "pizarra_controlador_id", "presentacion_storage_path",
+          "presentacion_pagina_actual", "presentacion_presentador_id"].some((k) => antes[k] !== sala[k]);
+        if (cambio) await aplicarVista();
+        if (antes.pizarra_controlador_id !== yo.id && sala.pizarra_controlador_id === yo.id && !soyDir()) {
+          aviso("El dirigente te dio la pizarra. Ya puedes escribir.");
         }
-        if (antes.presentacion_storage_path !== sala.presentacion_storage_path
-          || antes.presentacion_pagina_actual !== sala.presentacion_pagina_actual
-          || antes.presentacion_presentador_id !== sala.presentacion_presentador_id) {
-          refrescarDiapositivas();
+        if (antes.presentacion_presentador_id !== yo.id && sala.presentacion_presentador_id === yo.id && !soyDir()) {
+          aviso("Ahora tú controlas las diapositivas.");
         }
       })
     .on("postgres_changes", { event: "*", schema: "connectalive", table: "participantes", filter: `sala_id=eq.${salaId}` },
-      async (payload) => {
-        if (payload.eventType === "DELETE") {
-          participantes.delete(payload.old.id);
-        } else {
+      (payload) => {
+        if (payload.eventType === "DELETE") participantes.delete(payload.old.id);
+        else {
           participantes.set(payload.new.id, payload.new);
           if (payload.new.user_id === user.id) {
-            const yo = miParticipante;
-            miParticipante = payload.new;
-            // Si me cambió el rol o me dieron/quitaron voz, revisar mi token.
-            if (yo.rol !== payload.new.rol || yo.voz_activa !== payload.new.voz_activa) {
+            const antes = yo;
+            yo = payload.new;
+            if (antes.rol !== yo.rol || antes.voz_activa !== yo.voz_activa) {
               aplicarMiRol();
-              await revisarMiToken();
+              aplicarVista();
+              if (yo.rol === "alumno" && antes.rol === "oyente") aviso("El dirigente te subió a alumno: ya puedes hablar.");
+              else if (yo.voz_activa && !antes.voz_activa) aviso("Te dieron la palabra: prende tu micrófono.");
+              else if (!yo.voz_activa && antes.voz_activa && yo.rol === "oyente") aviso("El dirigente cerró tu micrófono.");
             }
           }
         }
         pintar();
+        pintarVideos();
       })
     .on("postgres_changes", { event: "*", schema: "connectalive", table: "solicitudes", filter: `sala_id=eq.${salaId}` },
       (payload) => {
-        if (payload.eventType === "DELETE") {
-          solicitudes = solicitudes.filter((s) => s.id !== payload.old.id);
-        } else {
+        if (payload.eventType === "DELETE") solicitudes = solicitudes.filter((s) => s.id !== payload.old.id);
+        else {
           const i = solicitudes.findIndex((s) => s.id === payload.new.id);
+          const antes = i >= 0 ? solicitudes[i] : null;
           if (i >= 0) solicitudes[i] = payload.new; else solicitudes.push(payload.new);
+          const s = payload.new;
+          if (s.participante_id === yo.id && antes?.estado === "pendiente") {
+            if (s.estado === "aprobada" && s.tipo === "compartir") aviso("El dirigente aprobó: toca el botón de pantalla para compartir.");
+            else if (s.estado === "rechazada") aviso(`El dirigente no aprobó tu petición (${etiquetaTipo(s.tipo)}).`);
+          }
+          if (soyDir() && !antes && s.estado === "pendiente") {
+            const p = participantes.get(s.participante_id);
+            if (p) aviso(`${p.nombre_mostrar} ${etiquetaTipo(s.tipo)}.`);
+          }
         }
         pintar();
       })
     .on("postgres_changes", { event: "*", schema: "connectalive", table: "archivos", filter: `sala_id=eq.${salaId}` },
       (payload) => {
-        if (payload.eventType === "DELETE") {
-          archivos = archivos.filter((a) => a.id !== payload.old.id);
-        } else {
+        if (payload.eventType === "DELETE") archivos = archivos.filter((a) => a.id !== payload.old.id);
+        else {
           const i = archivos.findIndex((a) => a.id === payload.new.id);
           if (i >= 0) archivos[i] = payload.new; else archivos.unshift(payload.new);
         }
@@ -740,92 +689,100 @@ function suscribir() {
     .subscribe();
 }
 
-async function revisarMiToken() {
-  // Con `permiso.js` el servidor ya movió los permisos en LiveKit; no necesito
-  // reconectar. Aún así, si en algún caso el SDK no reaplica solo, sería aquí.
-}
+// --- LiveKit -------------------------------------------------------------------
+// Se pintan quienes transmiten algo (cámara, micrófono o pantalla) y el
+// dirigente; los oyentes callados no llenan la pantalla de cuadros negros.
+function pintarVideos() {
+  if (!room || terminada) return;
+  const destino = !$("#pizarra").classList.contains("oculto") ? $("#tira-videos")
+    : !$("#diapositivas").classList.contains("oculto") ? $("#tira-videos-dp")
+    : $("#tarima");
 
-// --- LiveKit ---------------------------------------------------------------
-async function conectarLK() {
-  const rolTecnico = miParticipante.rol === "oyente" && !miParticipante.voz_activa ? "oyente" :
-                     miParticipante.rol === "dirigente" ? "dirigente" : "alumno";
-  miTokenRol = rolTecnico;
-  const { room: r, LK: lk } = await conectarSala({
-    salaId,
-    participanteId: miParticipante.id,
-    rol: rolTecnico,
-  });
-  room = r; LK = lk;
+  // Soltar los <video>/<audio> anteriores (si no, se acumulan en memoria).
+  const todos = [room.localParticipant, ...room.remoteParticipants.values()];
+  for (const p of todos) for (const pub of p.trackPublications.values()) pub.track?.detach();
+  for (const n of [$("#tarima"), $("#tira-videos"), $("#tira-videos-dp")]) n.innerHTML = "";
 
-  const pintarTarima = () => {
-    // Cuando pizarra o diapositivas están abiertas, los videos se van a su
-    // tira lateral. Si ninguna, van a la tarima principal.
-    const dpAbierta = !!sala?.presentacion_storage_path;
-    const pzAbierta = !!sala?.pizarra_abierta && !dpAbierta;
-    let destino;
-    if (dpAbierta) destino = $("#tira-videos-dp");
-    else if (pzAbierta) destino = $("#tira-videos");
-    else destino = $("#tarima");
-    // Limpiar los otros dos para no dejar duplicados
-    [$("#tarima"), $("#tira-videos"), $("#tira-videos-dp")].forEach((n) => {
-      if (n && n !== destino) n.innerHTML = "";
-    });
-    destino.innerHTML = "";
-    const remotos = Array.from(room.remoteParticipants.values());
-    const todos = [room.localParticipant, ...remotos];
-    for (const p of todos) {
-      const box = document.createElement("div");
-      box.className = "video-box";
-      box.dataset.identity = p.identity;
-      const label = document.createElement("div");
-      label.className = "video-label";
-      label.textContent = p.name || p.identity;
-      box.appendChild(label);
+  for (const p of todos) {
+    const pubs = [...p.trackPublications.values()].filter((x) => x.track);
+    const part = participantes.get(p.identity);
+    const esDirigente = part?.rol === "dirigente";
+    if (!pubs.length && !esDirigente) continue;
 
-      for (const pub of p.trackPublications.values()) {
-        if (pub.track && pub.kind === "video") {
-          // Screen share: `contain` (se ve toda la pantalla, sin recorte) y
-          // la caja ocupa toda la fila del grid para que se lea. Cámara:
-          // `cover` como antes.
-          const esScreen = pub.source === "screen_share" || pub.track?.source === "screen_share";
-          const el = pub.track.attach();
-          el.classList.add("video-media");
-          if (esScreen) {
-            el.classList.add("video-screen");
-            box.classList.add("es-screen");
-          }
-          box.appendChild(el);
-        }
-        if (pub.track && pub.kind === "audio" && p !== room.localParticipant) {
-          const el = pub.track.attach();
-          el.style.display = "none";
-          box.appendChild(el);
-        }
+    const box = document.createElement("div");
+    box.className = "video-box";
+    const label = document.createElement("div");
+    label.className = "video-label";
+    label.textContent = (part?.nombre_mostrar || p.name || "—") + (p === room.localParticipant ? " (tú)" : "");
+    box.appendChild(label);
+
+    for (const pub of pubs) {
+      if (pub.kind === "video") {
+        const el = pub.track.attach();
+        el.classList.add("video-media");
+        if (pub.source === "screen_share") { el.classList.add("video-screen"); box.classList.add("es-screen"); }
+        if (pub.isMuted) el.classList.add("oculto");
+        box.appendChild(el);
+      } else if (pub.kind === "audio" && p !== room.localParticipant) {
+        const el = pub.track.attach();
+        el.style.display = "none";
+        box.appendChild(el);
       }
-      destino.appendChild(box);
     }
-    if (destino.children.length === 0 && destino.id === "tarima") {
-      destino.innerHTML = '<div class="tarima-vacia">Nadie está transmitiendo todavía.</div>';
+    if (!box.querySelector("video:not(.oculto)")) {
+      const ini = document.createElement("div");
+      ini.className = "video-inicial";
+      ini.textContent = (label.textContent.trim()[0] || "?").toUpperCase();
+      box.appendChild(ini);
     }
-  };
-  // Exponer para poder repintar cuando la pizarra se abre o cierra.
-  window.__repintarVideos = pintarTarima;
-
-  const eventos = [LK.RoomEvent.TrackSubscribed, LK.RoomEvent.TrackUnsubscribed,
-                   LK.RoomEvent.ParticipantConnected, LK.RoomEvent.ParticipantDisconnected,
-                   LK.RoomEvent.LocalTrackPublished, LK.RoomEvent.LocalTrackUnpublished,
-                   LK.RoomEvent.TrackMuted, LK.RoomEvent.TrackUnmuted];
-  for (const e of eventos) room.on(e, pintarTarima);
-  pintarTarima();
+    destino.appendChild(box);
+  }
+  if (!destino.children.length && destino.id === "tarima") {
+    destino.innerHTML = '<div class="tarima-vacia">Nadie está transmitiendo todavía.</div>';
+  }
 }
 
-// --- Arranque --------------------------------------------------------------
+async function conectarLK() {
+  const r = await conectarSala({ salaId, participanteId: yo.id });
+  room = r.room;
+  LK = r.LK;
+  const E = LK.RoomEvent;
+  for (const ev of [E.TrackSubscribed, E.TrackUnsubscribed, E.ParticipantConnected, E.ParticipantDisconnected,
+                    E.LocalTrackPublished, E.LocalTrackUnpublished, E.TrackMuted, E.TrackUnmuted]) {
+    room.on(ev, pintarVideos);
+  }
+  // Si el navegador corta la pantalla compartida desde su propia barra.
+  room.on(E.LocalTrackUnpublished, () => {
+    $("#btn-pantalla").dataset.estado = room.localParticipant.isScreenShareEnabled ? "on" : "off";
+    $("#btn-mic").dataset.estado = room.localParticipant.isMicrophoneEnabled ? "on" : "off";
+    $("#btn-cam").dataset.estado = room.localParticipant.isCameraEnabled ? "on" : "off";
+  });
+  room.on(E.Disconnected, () => aviso("Se cortó el video. Recarga la página para volver a entrar.", 60000));
+  pintarVideos();
+
+  // Minutos-participante: un latido por minuto mientras hay video.
+  const latir = async () => {
+    const { data } = await sb.rpc("latido", { p_sala: salaId });
+    if (data?.cerrada) abortar("El dirigente terminó la clase. ¡Gracias por venir!");
+  };
+  latir();
+  latido = setInterval(latir, 60_000);
+}
+
+// --- Arranque ------------------------------------------------------------------
 try {
-  await cargarLivekit();          // precarga el SDK mientras hacemos consultas
-  await cargarTodo();
-  suscribir();
-  await conectarLK();
+  cargarLivekit().catch(() => {});      // precarga el SDK mientras hacemos consultas
+  if (await cargarTodo()) {
+    suscribir();
+    try {
+      await conectarLK();
+    } catch (err) {
+      console.error(err);
+      // Sin video (sin minutos, plan vencido, sin red): lo demás de la clase sigue.
+      $("#tarima").innerHTML = `<div class="tarima-vacia">No se pudo conectar el video.<br><small>${escapar(err.message)}</small></div>`;
+    }
+  }
 } catch (err) {
   console.error(err);
-  abortar(err.message || "Falló el arranque de la sala");
+  abortar(err.message || "Falló el arranque de la clase");
 }

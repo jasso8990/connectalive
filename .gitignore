@@ -7,3 +7,4 @@ node_modules/
 _*.html
 _*.js
 _scratch/
+.local/

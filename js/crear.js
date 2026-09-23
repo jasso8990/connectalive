@@ -1,90 +1,42 @@
-// Crear una sala. El usuario autenticado queda como dirigente.
+// Crear una clase. El usuario autenticado queda como dirigente.
+//
+// Sólo crean clase las cuentas con plan vigente, propio o de la escuela o
+// empresa que las dio de alta como maestro (lo decide `puede_crear_sala`
+// en la base; la política de INSERT de `salas` lo vuelve a exigir). El
+// dirigente queda inscrito como participante por un trigger de la base.
 
 import { sb } from "./supabase.js";
-import { requireUser, nombreDe, salir } from "./auth.js";
+import { requireUser } from "./auth.js";
+import { resumenDelPlan } from "./plan.js";
+import { copiar } from "./util.js";
 
 const $ = (s) => document.querySelector(s);
-
 const user = await requireUser();
 
-$("#btn-salir").addEventListener("click", async () => {
-  await salir();
-  location.replace("/");
-});
-
-// Si el usuario vuelve del Checkout, preguntarle a Stripe qué pasó ANTES de
-// medir autorización (así, si acaba de pagar, ya sale con plan vigente).
 {
-  const params = new URLSearchParams(location.search);
-  const marca = params.get("stripe");
-  if (marca === "ok") {
-    try {
-      await sb.functions.invoke("cl-revisar-suscripcion", { body: {} });
-    } catch { /* si falla, la pantalla de "no autorizado" invita a reintentar */ }
-    // Quita el ?stripe=ok del URL para que un F5 no vuelva a disparar.
-    history.replaceState({}, "", "/crear");
-  } else if (marca === "cancel") {
-    history.replaceState({}, "", "/crear");
-  }
-}
-
-// Sólo cuentas con plan vigente crean sala (consume minutos de LiveKit). El
-// resto puede unirse a salas de otros y usar pizarra/presentaciones gratis.
-{
-  const { data: autorizado, error } = await sb.rpc("puede_crear_sala");
-  if (error || !autorizado) {
+  let r = null;
+  try { r = await resumenDelPlan(); } catch { /* se trata como sin plan */ }
+  if (!r?.puede_crear) {
     $("#paso-crear").classList.add("oculto");
     $("#paso-no-autorizado").classList.remove("oculto");
     $("#no-autorizado-correo").textContent = user.email || "tu cuenta";
-
-    // Pinta los planes que hay en la base para que el usuario contrate.
-    const { data: planes } = await sb
-      .from("planes")
-      .select("slug,nombre,precio_usd,minutos_participante_mes")
-      .order("orden");
-    const cont = $("#planes-lista");
-    for (const p of planes || []) {
-      const horasAprox = Math.round(p.minutos_participante_mes / 20 / 60);
-      const tarjeta = document.createElement("div");
-      tarjeta.className = "codigo-caja";
-      tarjeta.innerHTML = `
-        <div style="min-width:0">
-          <div style="font-weight:600; font-size:17px">${p.nombre} — $${p.precio_usd}/mes</div>
-          <div class="pista" style="margin-top:4px">Hasta <strong>${p.minutos_participante_mes.toLocaleString("es-MX")}</strong> minutos-participante al mes (≈ ${horasAprox} h de clase con 20 personas).</div>
-        </div>
-        <button type="button" class="btn btn-primario" style="flex-shrink:0" data-plan="${p.slug}">Contratar</button>
-      `;
-      const btn = tarjeta.querySelector("button");
-      btn.addEventListener("click", async () => {
-        const original = btn.textContent;
-        btn.disabled = true;
-        btn.textContent = "Abriendo…";
-        try {
-          const { data, error: e } = await sb.functions.invoke("cl-crear-checkout", {
-            body: { plan: p.slug },
-          });
-          if (e || data?.error) throw new Error(data?.error || e?.message || "Stripe no respondió");
-          if (!data?.url) throw new Error("Stripe no devolvió URL");
-          location.href = data.url;
-        } catch (err) {
-          btn.disabled = false;
-          btn.textContent = original;
-          alert(err.message || "No se pudo abrir el checkout");
-        }
-      });
-      cont.appendChild(tarjeta);
-    }
+  } else {
+    const deOtro = !r.titular?.vigente && r.maestro_de?.find((m) => m.vigente && m.activo);
+    $("#con-plan").textContent = deOtro
+      ? `Con el plan ${deOtro.plan_nombre} de ${deOtro.titular_correo}.`
+      : `Con tu plan ${r.titular?.plan_nombre || ""}.`;
+    // El botón nace apagado: si se toca antes de saber el plan, el
+    // formulario se mandaba como página normal y no creaba nada.
+    $("#btn-crear").disabled = false;
   }
 }
 
-// Genera un código corto legible: 8 caracteres sin ambigüedades (sin 0/O/1/I).
+// Código corto legible: 8 caracteres sin ambigüedades (sin 0/O/1/I).
 function codigoCorto() {
   const abc = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let s = "";
   const buf = new Uint32Array(8);
   crypto.getRandomValues(buf);
-  for (let i = 0; i < 8; i++) s += abc[buf[i] % abc.length];
-  return s;
+  return Array.from(buf, (n) => abc[n % abc.length]).join("");
 }
 
 $("#form-crear").addEventListener("submit", async (e) => {
@@ -94,13 +46,8 @@ $("#form-crear").addEventListener("submit", async (e) => {
   msg.classList.add("oculto");
   btn.disabled = true;
 
-  const nombre = $("#nombre").value.trim();
-  const descripcion = $("#descripcion").value.trim() || null;
-  const abierta = $("#abierta").checked;
-
   try {
-    // Reintentar si por casualidad alguno de los códigos ya existía.
-    // Necesitamos DOS códigos distintos: uno para oyentes, otro para alumnos.
+    // Dos códigos distintos (oyentes y alumnos); se reintenta si alguno ya existía.
     let sala = null;
     for (let intento = 0; intento < 5 && !sala; intento++) {
       const codigo = codigoCorto();
@@ -111,57 +58,35 @@ $("#form-crear").addEventListener("submit", async (e) => {
         .insert({
           codigo,
           codigo_alumnos: codigoAlumnos,
-          nombre,
-          descripcion,
+          nombre: $("#nombre").value.trim(),
+          descripcion: $("#descripcion").value.trim() || null,
           dirigente_id: user.id,
-          abierta_a_oyentes: abierta,
+          abierta_a_oyentes: $("#abierta").checked,
         })
-        .select()
+        .select("id, codigo")
         .single();
-      if (!error) { sala = data; break; }
-      if (error.code !== "23505") throw error; // 23505 = unique violation
+      if (!error) { sala = { ...data, codigo_alumnos: codigoAlumnos }; break; }
+      if (error.code !== "23505") throw error; // 23505 = código repetido
     }
     if (!sala) throw new Error("No fue posible generar códigos únicos, intenta otra vez");
 
-    // El dirigente también se inserta como participante de la sala.
-    const { error: errP } = await sb
-      .from("participantes")
-      .insert({
-        sala_id: sala.id,
-        user_id: user.id,
-        nombre_mostrar: nombreDe(user),
-        rol: "dirigente",
-      });
-    if (errP && errP.code !== "23505") throw errP;
-
-    // Dos enlaces + el código escrito: el público entra como oyente; el de
-    // alumnos trae ?a=<codigo_alumnos> y al abrirlo entra directo con voz.
     $("#paso-crear").classList.add("oculto");
     $("#paso-lista").classList.remove("oculto");
 
-    const formato = (c) => c.replace(/(.{4})/, "$1 ").trim();
     const enlace = `${location.origin}/s/${sala.codigo}`;
     const enlaceAlumnos = `${enlace}?a=${sala.codigo_alumnos}`;
     $("#enlace-mostrar").textContent = enlace;
     $("#enlace-alumnos-mostrar").textContent = enlaceAlumnos;
-    $("#codigo-alumnos-mostrar").textContent = formato(sala.codigo_alumnos);
+    $("#codigo-alumnos-mostrar").textContent = sala.codigo_alumnos.replace(/(.{4})/, "$1 ");
     $("#btn-ir-sala").href = `/sala/${sala.id}`;
 
-    function copiarA(btn, texto, msgOk) {
-      btn.addEventListener("click", async () => {
-        try {
-          await navigator.clipboard.writeText(texto);
-          const original = btn.textContent;
-          btn.textContent = msgOk;
-          setTimeout(() => (btn.textContent = original), 1500);
-        } catch { /* sin permiso, ni modo */ }
-      });
-    }
-    copiarA($("#btn-copiar-enlace"), enlace, "Copiado");
-    copiarA($("#btn-copiar-enlace-alumnos"), enlaceAlumnos, "Copiado");
-    copiarA($("#btn-copiar-codigo"), sala.codigo_alumnos, "Copiado");
+    $("#btn-copiar-enlace").addEventListener("click", (ev) => copiar(ev.currentTarget, enlace));
+    $("#btn-copiar-enlace-alumnos").addEventListener("click", (ev) => copiar(ev.currentTarget, enlaceAlumnos));
+    $("#btn-copiar-codigo").addEventListener("click", (ev) => copiar(ev.currentTarget, sala.codigo_alumnos));
   } catch (err) {
-    msg.textContent = err.message || "No se pudo crear la sala";
+    msg.textContent = /row-level security/i.test(err.message || "")
+      ? "Tu plan no está vigente. Revisa «Mi plan»."
+      : err.message || "No se pudo crear la clase";
     msg.className = "mensaje error";
     btn.disabled = false;
   }

@@ -1,0 +1,14 @@
+{
+  "name": "Connectalive",
+  "short_name": "Connectalive",
+  "description": "Pizarra, presentación remota y clases en vivo.",
+  "start_url": "/inicio",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#eef4fb",
+  "theme_color": "#0f172a",
+  "lang": "es",
+  "icons": [
+    { "src": "/assets/icono.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

@@ -9,9 +9,3 @@ export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   db: { schema: APP_SCHEMA },
   auth: { persistSession: true, autoRefreshToken: true },
 });
-
-// Un cliente "pelón" (sin esquema fijo) para llamadas al esquema `public` si
-// alguna vez hicieran falta (por ejemplo, funciones RPC comunes).
-export const sbPublic = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: { persistSession: true, autoRefreshToken: true, storageKey: "sb-connectalive-shared" },
-});

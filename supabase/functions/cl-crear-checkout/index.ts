@@ -10,9 +10,9 @@
    Secretos que TIENE QUE tener el proyecto (Supabase → Project Settings →
    Edge Functions → Secrets):
      STRIPE_SECRET_KEY          sk_/rk_test_... o sk_/rk_live_...
-     Connect_Price_Basico       price_id del plan $4.99  (slug 'clase')
-     Connect_Price_Premium      price_id del plan $19.99 (slug 'grupo')
-     Connect_Price_Profecional  price_id del plan $49.99 (slug 'escuela')
+     Connect_Price_Basico       price_id del plan Básico $4.99         (slug 'clase')
+     Connect_Price_Premium      price_id del plan Premium $19.99       (slug 'grupo')
+     Connect_Price_Profecional  price_id del plan Institucional $49.99 (slug 'escuela')
 
    Los slugs internos (clase/grupo/escuela) NO cambian: los nombres raros
    son sólo los que Juan usó al crear los productos en Stripe.
@@ -92,18 +92,31 @@ Deno.serve(async (req) => {
     const { data: estatus } = await supa.rpc("plan_estatus");
     const estatus0 = Array.isArray(estatus) ? estatus[0] : estatus;
 
+    // Con una suscripción de Stripe todavía vigente NO se abre otro
+    // Checkout: saldría una segunda suscripción y se cobraría doble. El
+    // cambio de plan va por el portal (cl-portal-cliente).
+    const vigente = estatus0?.vence_en && new Date(estatus0.vence_en as string) > new Date();
+    if (estatus0?.con_stripe && vigente) {
+      return responde({
+        error: "Ya tienes un plan activo. Para cambiarlo usa «Administrar pago o cambiar de plan».",
+      }, 409);
+    }
+
     const origen = origenSeguro(req);
 
     const body = new URLSearchParams();
     body.set("mode", "subscription");
     body.set("line_items[0][price]", price);
     body.set("line_items[0][quantity]", "1");
-    body.set("success_url", `${origen}/crear?stripe=ok`);
-    body.set("cancel_url",  `${origen}/crear?stripe=cancel`);
+    body.set("success_url", `${origen}/panel?stripe=ok`);
+    body.set("cancel_url",  `${origen}/panel?stripe=cancel`);
     body.set("client_reference_id", yo.user.id);
-    body.set("customer_email", yo.user.email ?? "");
+    // Stripe acepta `customer` O `customer_email`, no los dos: con ambos
+    // rechaza la sesión y la recontratación fallaba.
     if (estatus0?.stripe_customer_id) {
       body.set("customer", estatus0.stripe_customer_id as string);
+    } else {
+      body.set("customer_email", yo.user.email ?? "");
     }
 
     const r = await fetch("https://api.stripe.com/v1/checkout/sessions", {

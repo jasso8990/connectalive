@@ -21,7 +21,7 @@ export default async (req) => {
 
   let body;
   try { body = await req.json(); } catch { return json({ error: "JSON inválido" }, 400); }
-  const { salaId, participanteId, puedePublicar } = body || {};
+  const { salaId, participanteId } = body || {};
   if (!salaId || !participanteId) return json({ error: "faltan datos" }, 400);
 
   // Solo el dirigente de la sala puede mover permisos.
@@ -43,14 +43,25 @@ export default async (req) => {
   if (!sala) return json({ error: "sala no existe" }, 404);
   if (sala.dirigente_id !== userId) return json({ error: "sólo el dirigente cambia permisos" }, 403);
 
+  // El permiso sale de la base (lo que el dirigente ya grabó), no de lo que
+  // diga el navegador.
+  const { data: p } = await admin
+    .schema("connectalive")
+    .from("participantes")
+    .select("id, sala_id, rol, voz_activa")
+    .eq("id", participanteId)
+    .single();
+  if (!p || p.sala_id !== salaId) return json({ error: "ese participante no es de esta sala" }, 404);
+  const puedePublicar = p.rol !== "oyente" || p.voz_activa;
+
   // Ahora sí, mover en LiveKit.
   const httpUrl = LIVEKIT_URL.replace(/^wss?:\/\//, "https://");
   const svc = new RoomServiceClient(httpUrl, LK_KEY, LK_SECRET);
 
   try {
     await svc.updateParticipant(salaId, participanteId, /* metadata */ undefined, {
-      canPublish: !!puedePublicar,
-      canPublishData: !!puedePublicar,
+      canPublish: puedePublicar,
+      canPublishData: puedePublicar,
       canSubscribe: true,
     });
     // Si le acabas de quitar voz, además silencia los tracks publicados.
@@ -62,7 +73,7 @@ export default async (req) => {
         }
       } catch { /* nadie conectado con ese identity aún: no pasa nada */ }
     }
-  } catch (err) {
+  } catch {
     // Si el participante todavía no está conectado a LiveKit, updateParticipant
     // devuelve error. No es fatal: cuando se conecte va a pedir un token nuevo
     // (token.js) que ya lleva los permisos actualizados.

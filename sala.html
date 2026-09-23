@@ -19,8 +19,9 @@
       </div>
     </div>
     <div class="sala-top-derecha">
-      <span id="sala-codigo" class="chip"></span>
+      <span id="sala-codigo" class="chip ocultar-movil"></span>
       <span id="mi-rol" class="chip chip-rol">…</span>
+      <button id="btn-invitar" class="btn btn-secundario btn-chico oculto" type="button">Invitar</button>
       <button id="btn-salir" class="btn btn-lineal" type="button">Salir</button>
     </div>
   </header>
@@ -36,17 +37,33 @@
          controles (botón "Pizarra"). Cuando está abierta, los videos siguen
          viéndose en una tira compacta (#tira-videos). -->
     <section class="pizarra oculto" id="pizarra">
-      <div class="pizarra-lienzo">
-        <canvas id="pz-canvas" width="1600" height="900"></canvas>
+      <div class="pizarra-lienzo" id="pz-caja">
+        <div class="lienzo-marco" id="pz-marco">
+          <div class="lienzo-envoltura" id="pz-envoltura"><canvas id="pz-canvas"></canvas></div>
+        </div>
         <button type="button" id="pz-fullscreen" class="btn-flotante" title="Pantalla completa" aria-label="Pantalla completa">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8V5a2 2 0 0 1 2-2h3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M21 16v3a2 2 0 0 1-2 2h-3"/></svg>
         </button>
       </div>
-      <div class="pizarra-toolbar oculto" id="pz-toolbar">
-        <label class="pz-campo"><span>Color</span><input type="color" id="pz-color" value="#111827"></label>
-        <label class="pz-campo"><span>Grosor</span><input type="range" id="pz-grosor" min="1" max="24" value="5"></label>
-        <button type="button" id="pz-borrar" class="btn btn-secundario">Borrar pizarra</button>
-        <span class="pz-estado" id="pz-estado-control">Tú controlas</span>
+      <div class="pizarra-toolbar">
+        <div class="barra-dibujo barra-horizontal oculto" id="pz-toolbar">
+          <button type="button" data-herr="lapiz" title="Lápiz" aria-label="Lápiz"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
+          <button type="button" data-herr="rect" title="Recuadro" aria-label="Recuadro"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="4" y="5" width="16" height="14" rx="1"/></svg></button>
+          <button type="button" data-herr="circulo" title="Círculo" aria-label="Círculo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="8"/></svg></button>
+          <button type="button" data-herr="borrador" title="Borrador" aria-label="Borrador"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3a1 1 0 0 1 0-1.4l10-10a1 1 0 0 1 1.4 0l5.6 5.6a1 1 0 0 1 0 1.4L11 21"/><path d="M22 21H7"/></svg></button>
+          <span class="barra-sep"></span>
+          <button type="button" class="color" data-color="#18212f" aria-label="Negro"></button>
+          <button type="button" class="color" data-color="#2563eb" aria-label="Azul"></button>
+          <button type="button" class="color" data-color="#dc2626" aria-label="Rojo"></button>
+          <button type="button" class="color" data-color="#16a34a" aria-label="Verde"></button>
+          <span class="barra-sep"></span>
+          <label class="barra-grosor" title="Grosor"><input type="range" min="2" max="18" value="5" data-grosor aria-label="Grosor"></label>
+          <button type="button" data-accion="deshacer" title="Deshacer" aria-label="Deshacer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
+          <button type="button" data-accion="limpiar" title="Borrar todo" aria-label="Borrar todo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>
+        </div>
+        <span class="pz-estado" id="pz-estado-control">—</span>
+        <button type="button" id="pz-recuperar" class="btn btn-secundario btn-chico oculto">Recuperar control</button>
+        <button type="button" id="pz-cerrar" class="btn btn-lineal btn-chico oculto">Cerrar pizarra</button>
       </div>
       <div class="tira-videos" id="tira-videos"></div>
     </section>
@@ -55,16 +72,12 @@
          de controles. Layout gemelo a la pizarra: lienzo grande, toolbar
          inferior con paginación y quien presenta. -->
     <section class="diapositivas oculto" id="diapositivas">
-      <div class="diapo-lienzo">
+      <div class="diapo-lienzo" id="dp-caja">
         <canvas id="dp-canvas"></canvas>
         <button type="button" id="dp-fullscreen" class="btn-flotante" title="Pantalla completa" aria-label="Pantalla completa">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8V5a2 2 0 0 1 2-2h3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M21 16v3a2 2 0 0 1-2 2h-3"/></svg>
         </button>
-        <div class="diapo-vacio oculto" id="dp-vacio">
-          <p>Sube un PDF para empezar la presentación.</p>
-          <label for="dp-input" class="btn btn-primario" id="dp-btn-subir">Subir PDF</label>
-          <input type="file" id="dp-input" accept="application/pdf" hidden>
-        </div>
+        <input type="file" id="dp-input" accept="application/pdf,.pdf" hidden>
       </div>
       <div class="diapo-toolbar" id="dp-toolbar">
         <button type="button" id="dp-anterior" class="btn btn-secundario" aria-label="Anterior">
@@ -76,6 +89,7 @@
         </button>
         <span class="dp-nombre" id="dp-nombre"></span>
         <span class="dp-estado" id="dp-estado">—</span>
+        <button type="button" id="dp-tomar" class="btn btn-secundario btn-chico oculto">Presentar yo</button>
         <button type="button" id="dp-cerrar" class="btn btn-lineal" style="margin-left:auto">Cerrar presentación</button>
       </div>
       <div class="tira-videos" id="tira-videos-dp"></div>
@@ -169,6 +183,38 @@
       </menu>
     </form>
   </dialog>
+
+  <!-- Invitar (sólo dirigente) -->
+  <dialog id="dlg-invitar">
+    <div class="stack">
+      <h3>Invitar a la clase</h3>
+      <div>
+        <span class="etiqueta">Enlace público (entran como oyentes)</span>
+        <div class="codigo-caja"><span class="texto-mono" id="inv-publico"></span><button class="btn btn-primario btn-chico" type="button" data-copiar="inv-publico">Copiar</button></div>
+      </div>
+      <div>
+        <span class="etiqueta">Enlace de alumnos (entran con voz)</span>
+        <div class="codigo-caja"><span class="texto-mono" id="inv-alumnos"></span><button class="btn btn-primario btn-chico" type="button" data-copiar="inv-alumnos">Copiar</button></div>
+        <p class="pista pista-chica">Pásalo sólo a quienes van a hablar.</p>
+      </div>
+      <menu class="acciones"><button type="button" id="inv-cerrar">Listo</button></menu>
+    </div>
+  </dialog>
+
+  <!-- Salir -->
+  <dialog id="dlg-salir">
+    <form method="dialog" class="stack">
+      <h3>¿Salir de la clase?</h3>
+      <p class="pista" id="salir-pista">Puedes volver a entrar desde Inicio mientras la clase siga abierta.</p>
+      <menu class="acciones">
+        <button value="cancel">Quedarme</button>
+        <button value="terminar" class="btn-peligro oculto" id="btn-terminar">Terminar para todos</button>
+        <button value="salir" class="btn btn-primario">Salir</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <div class="aviso-flotante aviso-sala oculto" id="aviso"></div>
 
   <script type="module" src="/js/sala.js"></script>
 </body>

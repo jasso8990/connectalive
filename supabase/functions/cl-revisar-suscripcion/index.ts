@@ -10,9 +10,9 @@
    con `?stripe=ok`. Menos partes móviles.
 
    Precios detectados desde estos secrets (misma tabla que crear-checkout):
-     Connect_Price_Basico     → slug 'clase'   ($4.99)
-     Connect_Price_Premium    → slug 'grupo'   ($19.99)
-     Connect_Price_Profecional → slug 'escuela' ($49.99)
+     Connect_Price_Basico      → slug 'clase'   (Básico $4.99)
+     Connect_Price_Premium     → slug 'grupo'   (Premium $19.99)
+     Connect_Price_Profecional → slug 'escuela' (Institucional $49.99)
 ============================================================ */
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -64,13 +64,25 @@ Deno.serve(async (req) => {
     }
     if (!customer) return responde({ ok: true, cambio: false, mensaje: "Sin customer" });
 
+    // Se buscan varias y se queda la que de verdad da acceso. Antes se
+    // tomaba la última sin mirar su estado: un pago rechazado
+    // (`incomplete`) también daba plan.
     const rs = await fetch(
-      `https://api.stripe.com/v1/subscriptions?customer=${customer}&status=all&limit=1`,
+      `https://api.stripe.com/v1/subscriptions?customer=${customer}&status=all&limit=10`,
       { headers: { Authorization: `Bearer ${STRIPE}` } },
     );
     const sj = await rs.json();
-    const sub = sj?.data?.[0];
-    if (!sub) return responde({ ok: true, cambio: false, mensaje: "Sin suscripción" });
+    type Sub = { status: string; current_period_end?: number };
+    const PAGADAS = ["active", "trialing", "past_due", "canceled"];
+    const candidatas = ((sj?.data ?? []) as Sub[])
+      .filter((s) => PAGADAS.includes(s.status))
+      // Primero las no canceladas; entre iguales, la que vence más tarde.
+      .sort((a, b) =>
+        (Number(b.status !== "canceled") - Number(a.status !== "canceled")) ||
+        ((b.current_period_end ?? 0) - (a.current_period_end ?? 0)));
+    // deno-lint-ignore no-explicit-any
+    const sub = candidatas[0] as any;
+    if (!sub) return responde({ ok: true, cambio: false, mensaje: "Sin suscripción pagada" });
 
     const price = sub?.items?.data?.[0]?.price?.id;
     const plan  = planDePrice(price);
@@ -78,9 +90,11 @@ Deno.serve(async (req) => {
 
     // La suscripción activa (o en periodo pagado) determina la fecha
     // hasta la que vale el plan.
-    const vence_en = sub.current_period_end
-      ? new Date(sub.current_period_end * 1000).toISOString()
-      : null;
+    // Una cancelada vale hasta el fin del periodo que ya pagó. Las versiones
+    // nuevas del API de Stripe mueven current_period_end al item.
+    const fin = sub.current_period_end ?? sub.items?.data?.[0]?.current_period_end;
+    if (!fin) return responde({ ok: true, cambio: false, mensaje: "Suscripción sin periodo" });
+    const vence_en = new Date(fin * 1000).toISOString();
 
     const admin = createClient(
       Deno.env.get("SUPABASE_URL")!,

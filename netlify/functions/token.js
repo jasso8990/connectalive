@@ -54,6 +54,13 @@ export default async (req) => {
   if (p.sala_id !== salaId) return json({ error: "sala equivocada" }, 400);
   if (p.user_id !== userId) return json({ error: "no eres ese participante" }, 403);
 
+  // Clase terminada, plan vencido o minutos del mes agotados: no hay token.
+  const { data: puede, error: eT } = await admin
+    .schema("connectalive")
+    .rpc("sala_puede_transmitir", { p_sala: salaId });
+  if (eT) return json({ error: `revisando el plan: ${eT.message}` }, 500);
+  if (!puede?.ok) return json({ error: puede?.motivo || "La clase no está disponible", motivo: "plan" }, 402);
+
   const puedePublicar = p.rol !== "oyente" || p.voz_activa;
 
   const at = new AccessToken(LK_KEY, LK_SECRET, {

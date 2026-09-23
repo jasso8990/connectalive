@@ -24,6 +24,26 @@
   to = "/unirse.html"
   status = 200
 
+[[redirects]]
+  from = "/inicio"
+  to = "/inicio.html"
+  status = 200
+
+[[redirects]]
+  from = "/panel"
+  to = "/panel.html"
+  status = 200
+
+[[redirects]]
+  from = "/pizarra"
+  to = "/pizarra.html"
+  status = 200
+
+[[redirects]]
+  from = "/presentacion"
+  to = "/presentacion.html"
+  status = 200
+
 # El código y las migraciones NO se sirven como página. Netlify publica la
 # carpeta entera; sin esto cualquiera podría bajar supabase/migrations/*.sql y
 # ver el mapa de las políticas RLS. No hay llaves adentro, pero no se regala.

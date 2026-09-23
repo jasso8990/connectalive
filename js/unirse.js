@@ -1,68 +1,47 @@
-// Unirse a una sala.
+// Unirse a una clase.
 //
-// TODOS los participantes están autenticados con correo/contraseña (mismo
-// patrón que Vitalia). El enlace `/s/CODIGO` te lleva a la sala; el "código
-// de alumno" que sólo el dirigente reparte te sube a rol alumno:
+// Todos entran con cuenta (correo/contraseña). El rol lo decide la base
+// (`unirse_a_sala`) según el código con que se entra:
 //
-//   • Entrar sin código                 → rol OYENTE (ver y escuchar).
-//   • Entrar con código de alumno       → rol ALUMNO (habla, interactúa).
+//   • Código de la sala (enlace público)   → OYENTE (ve y escucha).
+//   • Código de alumnos (enlace ?a=…)      → ALUMNO (habla, interactúa).
 //
-// Si no hay sesión, esta pantalla manda a /entrar?volver=<url actual>,
-// y al volver ya se muestra la elección de rol.
+// Sin sesión, esta pantalla manda a /entrar?volver=<url actual>.
 
 import { sb } from "./supabase.js";
 import { currentUser, nombreDe } from "./auth.js";
+import { mostrarMensaje } from "./util.js";
 
 const $ = (s) => document.querySelector(s);
 
-let sala = null;   // { id, nombre, abierta_a_oyentes, cerrada, rol_asignado }
+let sala = null;       // { id, nombre, abierta_a_oyentes, cerrada, rol_asignado }
+let codigoSala = "";   // el código con el que se encontró la sala
 
-// El código de la sala puede venir en tres formas:
-//   /s/CODIGO           (redirect de netlify.toml, mantiene el path)
-//   /unirse?codigo=XX   (compatibilidad)
-//   pegado a mano
 function codigoDeUrl() {
   const m = location.pathname.match(/^\/s\/([A-Za-z0-9]+)/);
   if (m) return m[1].toUpperCase();
   const q = new URLSearchParams(location.search).get("codigo");
   return q ? q.toUpperCase() : "";
 }
-
-// Si el enlace trae `?a=CODIGO`, es el enlace de alumnos: entra directo
-// con rol alumno sin pasar por la pantalla de elección.
-function codigoAlumnoDeUrl() {
-  const q = new URLSearchParams(location.search).get("a");
-  return q ? q.toUpperCase() : "";
-}
+const codigoAlumno = (new URLSearchParams(location.search).get("a") || "").toUpperCase();
 
 function mostrar(id) {
-  ["paso-codigo-sala", "paso-cargando", "paso-eleccion"].forEach((x) => {
-    document.getElementById(x).classList.toggle("oculto", x !== id);
-  });
-}
-
-function error(nodo, msg) {
-  nodo.textContent = msg;
-  nodo.className = "mensaje error";
-  nodo.classList.remove("oculto");
+  ["paso-codigo-sala", "paso-cargando", "paso-eleccion"].forEach((x) =>
+    document.getElementById(x).classList.toggle("oculto", x !== id));
 }
 
 async function buscarSala(codigo) {
-  const { data, error: err } = await sb.rpc("buscar_sala_por_codigo", { p_codigo: codigo });
-  if (err) throw err;
+  const { data, error } = await sb.rpc("buscar_sala_por_codigo", { p_codigo: codigo });
+  if (error) throw error;
   const s = data && data[0];
   if (!s) throw new Error("Ese código no existe. Revisa las letras.");
-  if (s.cerrada) throw new Error("Esta sala ya cerró.");
-  // Si el usuario pegó por error el código de alumno como si fuera enlace,
-  // igual encontramos la sala — pero preferimos que use el flujo normal.
+  if (s.cerrada) throw new Error("Esta clase ya terminó.");
   return s;
 }
 
-function extraerCodigoDeEntrada(texto) {
-  const t = texto.trim();
-  const m = t.match(/\/s\/([A-Za-z0-9]+)/);
-  if (m) return m[1].toUpperCase();
-  return t.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+function extraerCodigo(texto) {
+  const m = texto.trim().match(/\/s\/([A-Za-z0-9]+)/);
+  return m ? m[1].toUpperCase() : texto.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
 }
 
 function irALogin() {
@@ -70,130 +49,76 @@ function irALogin() {
   location.replace(`/entrar?volver=${volver}`);
 }
 
+async function entrar(codigo) {
+  const msg = $("#mensaje");
+  msg.classList.add("oculto");
+  if (!(await currentUser())) return irALogin();
+  const { data, error } = await sb.rpc("unirse_a_sala", { p_codigo: codigo });
+  if (error) return mostrarMensaje(msg, error.message || "No se pudo entrar");
+  location.replace(`/sala/${data.sala_id}`);
+}
+
 async function prepararEleccion() {
-  // Sin sesión, no hay elección: al login.
   const u = await currentUser();
   if (!u) return irALogin();
+
+  // Pegaron directamente el código de alumnos: no hay nada que elegir.
+  if (sala.rol_asignado === "alumno") return entrar(codigoSala);
 
   $("#sala-nombre").textContent = sala.nombre;
   $("#nombre-vis").textContent = nombreDe(u);
 
-  // Si la sala está cerrada a oyentes, ocultar el botón de invitado.
   if (!sala.abierta_a_oyentes) {
     $("#btn-invitado").classList.add("oculto");
     $("#det-codigo").setAttribute("open", "");
     const nota = document.createElement("p");
     nota.className = "pista";
-    nota.style.marginTop = "8px";
-    nota.textContent = "Esta clase está cerrada al público. Sólo entran alumnos con código.";
+    nota.textContent = "Esta clase es sólo para alumnos con código.";
     $("#det-codigo").before(nota);
   }
-
-  // Si el enlace trae `?a=CODIGO` pero el auto-entrar no disparó (por ej.
-  // porque el código no cuadraba con esta sala), al menos prellena el campo
-  // y abre el acordeón: el usuario ya no tiene que copiar/pegar nada, sólo
-  // dar click a "Entrar como alumno".
   if (codigoAlumno) {
     $("#codigo-alumno").value = codigoAlumno;
     $("#det-codigo").setAttribute("open", "");
   }
-
   mostrar("paso-eleccion");
 }
 
-async function entrarConRol(rol) {
-  const msg = $("#mensaje");
-  msg.classList.add("oculto");
-
-  try {
-    const user = await currentUser();
-    if (!user) return irALogin();
-
-    // Rejoin: si ya estabas en la sala, respeta tu rol previo (a menos que
-    // ahora te promuevas de oyente → alumno con el código correcto).
-    const { data: existente } = await sb
-      .from("participantes")
-      .select("id, rol")
-      .eq("sala_id", sala.id)
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (existente) {
-      // Si venías como oyente y ahora traes el código, subimos a alumno.
-      if (existente.rol === "oyente" && rol === "alumno") {
-        await sb.from("participantes")
-          .update({ rol: "alumno", salido_en: null })
-          .eq("id", existente.id);
-      } else if (existente.rol !== "dirigente") {
-        // Sólo limpiamos salido_en para marcar reingreso.
-        await sb.from("participantes").update({ salido_en: null }).eq("id", existente.id);
-      }
-    } else {
-      const { error: e3 } = await sb.from("participantes").insert({
-        sala_id: sala.id,
-        user_id: user.id,
-        nombre_mostrar: nombreDe(user),
-        rol,
-      });
-      if (e3) throw e3;
-    }
-
-    location.replace(`/sala/${sala.id}`);
-  } catch (err) {
-    error(msg, err.message || "No se pudo entrar");
-  }
-}
-
-// --- Arranque --------------------------------------------------------------
-const inicial = codigoDeUrl();
-const codigoAlumno = codigoAlumnoDeUrl();
-if (inicial) {
-  mostrar("paso-cargando");
-  try {
-    sala = await buscarSala(inicial);
-    await prepararEleccion();
-
-    // Si el enlace trae `?a=CODIGO_ALUMNOS`, dispara el flujo normal de
-    // "Entrar como alumno" (que valida y hace insert de participante). Si
-    // todo sale bien, ni siquiera ve la pantalla; si falla, la ve con el
-    // campo ya lleno y el mensaje de error visible.
-    if (codigoAlumno) {
-      $("#btn-alumno").click();
-    }
-  } catch (err) {
-    mostrar("paso-codigo-sala");
-    error($("#mensaje-buscar"), err.message);
-  }
-} else {
-  mostrar("paso-codigo-sala");
-}
-
-$("#form-buscar")?.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const codigo = extraerCodigoDeEntrada($("#entrada-sala").value);
-  if (!codigo) return;
+async function abrir(codigo) {
   mostrar("paso-cargando");
   try {
     sala = await buscarSala(codigo);
+    codigoSala = codigo;
     await prepararEleccion();
+    // Enlace de alumnos (`?a=`): entra directo, sin pasar por la elección.
+    if (codigoAlumno && sala.rol_asignado !== "alumno") $("#btn-alumno").click();
   } catch (err) {
     mostrar("paso-codigo-sala");
-    error($("#mensaje-buscar"), err.message);
+    mostrarMensaje($("#mensaje-buscar"), err.message);
   }
+}
+
+const inicial = codigoDeUrl();
+if (inicial) await abrir(inicial);
+else mostrar("paso-codigo-sala");
+
+$("#form-buscar").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const c = extraerCodigo($("#entrada-sala").value);
+  if (c) abrir(c);
 });
 
-$("#btn-invitado").addEventListener("click", () => entrarConRol("oyente"));
+$("#btn-invitado").addEventListener("click", () => entrar(codigoSala));
 
 $("#btn-alumno").addEventListener("click", async () => {
-  const codigo = $("#codigo-alumno").value.trim().toUpperCase();
-  if (!codigo) return error($("#mensaje"), "Escribe el código de alumno.");
+  const codigo = $("#codigo-alumno").value.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  if (!codigo) return mostrarMensaje($("#mensaje"), "Escribe el código de alumno.");
   try {
     const s2 = await buscarSala(codigo);
     if (s2.id !== sala.id || s2.rol_asignado !== "alumno") {
-      return error($("#mensaje"), "Ese código no es de alumno de esta sala.");
+      return mostrarMensaje($("#mensaje"), "Ese código no es de alumno de esta clase.");
     }
-    await entrarConRol("alumno");
+    await entrar(codigo);
   } catch (err) {
-    error($("#mensaje"), err.message);
+    mostrarMensaje($("#mensaje"), err.message);
   }
 });
