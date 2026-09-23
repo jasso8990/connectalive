@@ -583,3 +583,19 @@ body[data-vista="contenido"] .diapo-lienzo { height: clamp(220px, calc(100dvh - 
 /* Oyente con la palabra: el botón de la mano pasa a «Ya terminé». */
 .btn-icono.destacado.con-palabra { background: #16a34a; color: #fff; border-color: #16a34a; }
 .sol-hablando { border-left: 3px solid #16a34a; }
+
+/* Micrófono y cámara apagados: raya roja diagonal y borde rojo, para que se
+   note sin tener que picarle. */
+#btn-mic, #btn-cam { position: relative; }
+#btn-mic[data-estado="off"], #btn-cam[data-estado="off"] { color: #dc2626; border-color: #fca5a5; background: #fef2f2; }
+#btn-mic[data-estado="off"]::after, #btn-cam[data-estado="off"]::after {
+  content: ""; position: absolute; left: 50%; top: 50%;
+  width: 60%; height: 2.5px; border-radius: 2px;
+  background: #dc2626; box-shadow: 0 0 0 1.5px #fef2f2;
+  transform: translate(-50%, -50%) rotate(-45deg);
+  pointer-events: none;
+}
+
+/* Mi propia cámara se ve como espejo (si me muevo a mi derecha, en pantalla
+   también). Sólo en mi pantalla: los demás me ven normal. */
+.video-media.video-espejo { transform: scaleX(-1); }

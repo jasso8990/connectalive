@@ -803,6 +803,7 @@ function pintarVideos() {
         const el = pub.track.attach();
         el.classList.add("video-media");
         if (pub.source === "screen_share") { el.classList.add("video-screen"); box.classList.add("es-screen"); }
+        else if (p === room.localParticipant) el.classList.add("video-espejo");
         if (pub.isMuted) el.classList.add("oculto");
         box.appendChild(el);
       } else if (pub.kind === "audio" && p !== room.localParticipant) {
