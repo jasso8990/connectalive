@@ -362,6 +362,26 @@ LiveKit refleja el permiso técnico en caliente vía `permiso.js`.
   (la de cierre, `20260923b`, después del push, como pide la memoria
   "Migración que cierra acceso va DESPUÉS del push") y las tres `cl-*`
   desplegadas.
+- **Un 401 en el video no se adivina, se parte en dos.** Antes de tocar
+  variables de Netlify o la service key: se saca un token nuevecito por API
+  con la cuenta QA y se le pega a la función del token pidiendo un
+  participante que NO sea suyo.
+
+  ```bash
+  AT=$(curl -s -X POST "$SUPABASE_URL/auth/v1/token?grant_type=password" \
+    -H "apikey: <publishable>" -H "content-type: application/json" \
+    -d '{"email":"qa.connectalive@smrt-app.org","password":"..."}' \
+    | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+  curl -s -i -X POST "https://connectalive.smrt-app.org/.netlify/functions/token" \
+    -H "content-type: application/json" -H "authorization: Bearer $AT" \
+    -d '{"salaId":"<sala>","participanteId":"<de otra persona>"}'
+  ```
+
+  **403 «no eres ese participante»** = el servidor está bien (leyó la sesión
+  y buscó en la base) y el problema es el token que manda ESE navegador.
+  **401 «sesión inválida»** = ahí sí es configuración. El `auth_logs` del
+  proyecto lo confirma: los `GET /user` con `error_code: session_not_found`
+  son sesiones revocadas (ver arriba, `salir()` con `scope: "local"`).
 - **Cuentas QA**: `qa.connectalive@smrt-app.org` (Premium, titular) y
   `qa.alumno.connectalive@smrt-app.org` (sin plan). Contraseña en
   `.local/qa-user.md` (fuera de git). Creadas por SQL; no tienen perfil de
