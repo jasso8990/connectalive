@@ -3,7 +3,8 @@
 //
 // Un trazo es un objeto chico y serializable:
 //   { id, g, c, w, d?, p: [[x, y], …] }
-//     g  herramienta: "lapiz" | "rect" | "circulo" | "borrador" | "texto"
+//     g  herramienta: "lapiz" | "marcador" | "rect" | "circulo" | "borrador"
+//        | "texto"
 //     c  color
 //     w  grosor en milésimas del ancho del lienzo (así se ve igual en la
 //        tableta que en el proyector)
@@ -14,6 +15,12 @@
 // soltar) y con `alCambiar` (deshacer, limpiar, fin de trazo). La vista
 // (zoom y desplazamiento) se aplica como transform CSS sobre `envoltura`.
 
+// El marcador (`g: "marcador"`) también es un trazo de dos puntos, como el
+// recuadro: se arrastra encima de la frase y queda un BLOQUE de color parejo,
+// no un rayón. El arrastre da el ancho; el alto es el del resaltador (`w`),
+// salvo que a propósito se marque una caja más alta. Sale derecho aunque el
+// dedo tiemble, y va translúcido para que la frase se siga leyendo.
+//
 // El texto es un trazo más: `g: "texto"`, con `t` (lo escrito) y `s` (tamaño
 // en milésimas del ancho, como `w`); `p` son las dos esquinas del recuadro.
 // Igual que en Paint: se marca el recuadro, se escribe con el teclado y el
@@ -101,24 +108,44 @@ export function crearLienzo({ canvas, envoltura = null, transparente = false, al
       return;
     }
     ctx.globalCompositeOperation = t.g === "borrador" ? "destination-out" : "source-over";
+    // El marcador va translúcido para que la frase se siga leyendo debajo.
+    ctx.globalAlpha = t.g === "marcador" ? 0.38 : 1;
     ctx.strokeStyle = t.c || "#18212f";
     ctx.lineWidth = Math.max(1, ((t.w || 5) * w) / 1000);
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.beginPath();
     const [x0, y0] = t.p[0];
-    if ((t.g === "rect" || t.g === "circulo") && t.p.length > 1) {
+    if ((t.g === "rect" || t.g === "circulo" || t.g === "marcador") && t.p.length > 1) {
       const [x1, y1] = t.p[t.p.length - 1];
       const X = x0 * w, Y = y0 * h, W = (x1 - x0) * w, H = (y1 - y0) * h;
+      if (t.g === "marcador") {
+        // Alto: el del resaltador, centrado en el arrastre; si se marcó una
+        // caja más alta, se respeta.
+        const alto = Math.max(Math.abs(H), ((t.w || 34) * w) / 1000);
+        const izq = Math.min(X, X + W);
+        const arriba = Y + H / 2 - alto / 2;
+        const ancho = Math.abs(W);
+        ctx.fillStyle = t.c || "#f59e0b";
+        ctx.beginPath();
+        const r = Math.min(alto * 0.18, ancho / 2);
+        if (ctx.roundRect) ctx.roundRect(izq, arriba, ancho, alto, r);
+        else ctx.rect(izq, arriba, ancho, alto);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        return;
+      }
       if (t.g === "rect") ctx.rect(X, Y, W, H);
       else ctx.ellipse(X + W / 2, Y + H / 2, Math.abs(W / 2), Math.abs(H / 2), 0, 0, Math.PI * 2);
       ctx.stroke();
+      ctx.globalAlpha = 1;
       return;
     }
     ctx.moveTo(x0 * w, y0 * h);
     if (t.p.length === 1) ctx.lineTo(x0 * w + 0.1, y0 * h + 0.1);
     for (let i = 1; i < t.p.length; i++) ctx.lineTo(t.p[i][0] * w, t.p[i][1] * h);
     ctx.stroke();
+    ctx.globalAlpha = 1;
   }
 
   function redibujar() {
@@ -287,7 +314,9 @@ export function crearLienzo({ canvas, envoltura = null, transparente = false, al
       id: crypto.randomUUID().slice(0, 12),
       g: herramienta,
       c: color,
-      w: herramienta === "borrador" ? Math.max(18, grosor * 3) : grosor,
+      w: herramienta === "borrador" ? Math.max(18, grosor * 3)
+        : herramienta === "marcador" ? Math.max(34, grosor * 5)
+        : grosor,
       p: [punto(e)],
     };
     if (diapositiva != null) actual.d = diapositiva;
@@ -319,7 +348,7 @@ export function crearLienzo({ canvas, envoltura = null, transparente = false, al
     if (!actual) return;
     e.preventDefault();
     const p = punto(e);
-    if (actual.g === "rect" || actual.g === "circulo") actual.p = [actual.p[0], p];
+    if (actual.g === "rect" || actual.g === "circulo" || actual.g === "marcador") actual.p = [actual.p[0], p];
     else actual.p.push(p);
     redibujar();
     const ahora = performance.now();
@@ -361,6 +390,14 @@ export function crearLienzo({ canvas, envoltura = null, transparente = false, al
     if (!actual) return;
     const t = actual;
     actual = null;
+    // Marcador sin arrastrar: no hay frase que marcar, no se deja basura.
+    if (t.g === "marcador" && Math.abs((t.p[1]?.[0] ?? t.p[0][0]) - t.p[0][0]) < 0.01) {
+      const i = trazos.indexOf(t);
+      if (i >= 0) trazos.splice(i, 1);
+      redibujar();
+      alCambiar?.(trazos);
+      return;
+    }
     alTrazar?.(t, true);
     alCambiar?.(trazos);
   }
@@ -462,8 +499,14 @@ export function conectarBarra(raiz, lienzo, { alLimpiar } = {}) {
       control.closest(".barra-grosor")?.setAttribute("title", que);
     }
   };
+  // Lo último con lo que se estuvo escribiendo, para regresar ahí cuando se
+  // escoge un color estando en el borrador o en el zoom. Antes siempre caía en
+  // el lápiz, y en la presentación eso apagaba el marcador sin avisar.
+  const ESCRIBIR = (h) => h !== "borrador" && h !== "zoom";
+  let ultima = ESCRIBIR(lienzo.herramienta) ? lienzo.herramienta : "lapiz";
   raiz.querySelectorAll("[data-herr]").forEach((b) => b.addEventListener("click", () => {
     lienzo.setHerramienta(b.dataset.herr);
+    if (ESCRIBIR(b.dataset.herr)) ultima = b.dataset.herr;
     marcar();
   }));
   raiz.querySelectorAll("[data-color]").forEach((b) => {
@@ -471,8 +514,8 @@ export function conectarBarra(raiz, lienzo, { alLimpiar } = {}) {
     b.addEventListener("click", () => {
       lienzo.setColor(b.dataset.color);
       raiz.querySelectorAll("[data-color]").forEach((x) => x.classList.toggle("activo", x === b));
-      if (lienzo.herramienta === "borrador" || lienzo.herramienta === "zoom") {
-        lienzo.setHerramienta("lapiz");
+      if (!ESCRIBIR(lienzo.herramienta)) {
+        lienzo.setHerramienta(ultima);
         marcar();
       }
     });

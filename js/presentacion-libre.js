@@ -262,7 +262,7 @@ function aplicarPestana() {
   const dibuja = privada == null && (pestana === "subrayar" || pestana === "zoom");
   lienzo.setEditable(dibuja);
   if (pestana === "zoom") lienzo.setHerramienta("zoom");
-  else if (lienzo.herramienta === "zoom") lienzo.setHerramienta("lapiz");
+  else if (lienzo.herramienta === "zoom") lienzo.setHerramienta("marcador");
 }
 
 // Mirar primero: las flechas mueven esta vista y la pantalla no se entera.
@@ -302,9 +302,12 @@ async function arrancarControl() {
   sync.hola();
   estado("Controlando", true);
   $("#control").classList.remove("oculto");
+  // Arranca en marcador amarillo: lo normal aquí es resaltar una frase del
+  // PDF, no rayar encima.
+  lienzo.setHerramienta("marcador");
+  lienzo.setColor("#f59e0b");
   conectarBarra($("#barra"), lienzo);
-  lienzo.setColor("#dc2626");
-  $('#barra [data-color="#dc2626"]').classList.add("activo");
+  $('#barra [data-color="#f59e0b"]').classList.add("activo");
 
   $("#mini-ant").addEventListener("click", () => mirarPrivada(vistaActual() - 1));
   $("#mini-sig").addEventListener("click", () => mirarPrivada(vistaActual() + 1));

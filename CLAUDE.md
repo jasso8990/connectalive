@@ -308,6 +308,17 @@ LiveKit refleja el permiso técnico en caliente vía `permiso.js`.
   lienzo —así sirven el teclado del celular y los acentos— y se manda
   mientras se escribe, como un trazo a medio dibujar. El deslizador de
   grosor cambia de significado: con la «T» puesta es el tamaño de la letra.
+  El **marcador** (`g:"marcador"`) resalta una frase para darle relevancia,
+  como cuando seleccionas texto: se arrastra encima y queda un **bloque**
+  parejo, no un rayón. Es un trazo de dos puntos (como el recuadro), así que
+  sale derecho aunque tiemble el pulso; el arrastre da el ancho y `w` el alto
+  de la banda (mínimo 34 milésimas; regla práctica: para texto de tamaño `s`,
+  banda ≈ `s * 1.2`). Va translúcido (alpha .38) para que la frase se siga
+  leyendo, y un toque sin arrastrar no deja nada. Está en las dos pizarras y
+  en la barra de «Subrayar» de `/presentacion`, donde es la herramienta de
+  arranque en amarillo con la pluma delgada al lado. Por eso se le agregó el
+  amarillo a la paleta de la pizarra de la clase: sin él no hay resaltador
+  que valga.
 - `js/tablero.js` — sincroniza pizarra/presentación libres (broadcast +
   `tableros` + control de un solo dispositivo con latido).
 - `js/pizarra.js` — pizarra dentro de la clase (usa `lienzo.js`).
