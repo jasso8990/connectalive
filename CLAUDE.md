@@ -268,6 +268,19 @@ LiveKit refleja el permiso técnico en caliente vía `permiso.js`.
   conexiones con la misma sacan a la primera (la PC). Tampoco gasta minutos.
   «Salir» en modo control NO llama `salir_de_sala` (el renglón es el mismo
   que el de la PC).
+- **Mirar primero** (diapositivas de la clase, 2026-09-23): ya no hay
+  flechas. Quien presenta ve **sólo dos miniaturas**, la anterior y la
+  siguiente (`#dp-mini-ant` / `#dp-mini-sig`); toca una y ésa se ve grande en
+  SU pantalla. La clase no cambia hasta «Mostrar a todos», y ese botón vive
+  **encima de la diapositiva** (`.dp-mando`), no en una barra aparte; cuando
+  ya estás parado en la que se está viendo, en su lugar sale el sello
+  `● En pantalla`. El borde verde de una miniatura marca la que ve la clase.
+  La previa vive en el navegador (`dpPrevia` en `sala.js`), así que la
+  tableta mira mientras la PC y los alumnos siguen en la suya. Con teclado o
+  clicker: las flechas mueven lo que miras, Enter proyecta. Las miniaturas
+  las hace `visor.miniatura(n)` (`diapositivas.js`) en su propio canvas, de
+  una en una y guardadas ya hechas. La presentación libre (`/presentacion`)
+  funciona igual.
 - **Vista de cada quien** (Maestro / Ambos / Presentación o Pizarra):
   selector en la barra de arriba cuando hay pizarra o PDF abierto. Es de cada
   navegador (`localStorage cl-vista`), no cambia lo que ven los demás.
@@ -289,6 +302,12 @@ LiveKit refleja el permiso técnico en caliente vía `permiso.js`.
 - `sala.html` / `js/sala.js` — la clase en vivo (LiveKit + estado en Supabase).
 - `js/lienzo.js` — motor de dibujo único (pizarra libre, anotaciones sobre
   diapositivas y pizarra de la clase). Trazos en vectores normalizados.
+  El **texto** (herramienta `texto`, botón «T») es un trazo más: `g:"texto"`
+  con `t` (lo escrito) y `s` (tamaño en milésimas del ancho); `p` son las dos
+  esquinas del recuadro. Se escribe en un `<textarea>` puesto encima del
+  lienzo —así sirven el teclado del celular y los acentos— y se manda
+  mientras se escribe, como un trazo a medio dibujar. El deslizador de
+  grosor cambia de significado: con la «T» puesta es el tamaño de la letra.
 - `js/tablero.js` — sincroniza pizarra/presentación libres (broadcast +
   `tableros` + control de un solo dispositivo con latido).
 - `js/pizarra.js` — pizarra dentro de la clase (usa `lienzo.js`).

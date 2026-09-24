@@ -47,6 +47,12 @@
         <canvas id="pdf"></canvas>
         <canvas id="notas" class="capa-notas"></canvas>
       </div>
+      <!-- Desde la misma diapositiva se decide si se ve en la pantalla. -->
+      <div class="dp-mando oculto" id="dp-mando">
+        <button type="button" class="btn btn-primario" id="vp-mostrar">Mostrar en pantalla</button>
+        <button type="button" class="dp-volver" id="vp-volver">Volver a la que se ve</button>
+      </div>
+      <span class="dp-en-pantalla oculto" id="dp-en-pantalla">● En pantalla</span>
       <div class="aviso-flotante oculto" id="aviso"></div>
       <div class="codigo-proyector oculto" id="codigo-proyector">
         <span>Controla desde tu celular</span>
@@ -64,21 +70,11 @@
       </div>
 
       <div class="control-panel" data-panel="diapos">
-        <div class="vista-privada oculto" id="vista-privada">
-          <div><span class="etiqueta">Vista privada</span> <strong id="vp-num"></strong> <span class="pista-chica">(la pantalla no ha cambiado)</span></div>
-          <div class="linea">
-            <button type="button" class="btn btn-secundario" id="vp-volver">Volver</button>
-            <button type="button" class="btn btn-primario" id="vp-mostrar">Mostrar en pantalla</button>
-          </div>
+        <div class="dp-dos">
+          <button type="button" class="dp-mini oculto" id="mini-ant" aria-label="Ver la anterior"><span class="dp-mini-lamina"></span><span class="dp-mini-num"></span></button>
+          <button type="button" class="dp-mini oculto" id="mini-sig" aria-label="Ver la siguiente"><span class="dp-mini-lamina"></span><span class="dp-mini-num"></span></button>
         </div>
-        <div class="control-botones" id="botones-diapo">
-          <button type="button" class="btn btn-secundario btn-grande" id="btn-anterior" aria-label="Anterior">◀ Anterior</button>
-          <button type="button" class="btn btn-primario btn-grande" id="btn-siguiente" aria-label="Siguiente">Siguiente ▶</button>
-        </div>
-        <div class="linea control-mirar">
-          <button type="button" class="btn-lineal" id="btn-ver-anterior">Mirar la anterior</button>
-          <button type="button" class="btn-lineal" id="btn-ver-siguiente">Mirar la siguiente</button>
-        </div>
+        <p class="pista pista-chica">Toca la anterior o la siguiente para verla aquí. La pantalla sólo cambia cuando tocas «Mostrar en pantalla», sobre la diapositiva.</p>
       </div>
 
       <div class="control-panel oculto barra-dibujo barra-horizontal" data-panel="subrayar" id="barra">

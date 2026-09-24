@@ -53,6 +53,7 @@ let room = null;                    // LiveKit Room
 let LK = null;                      // namespace LivekitClient
 let pizarra = null;                 // módulo pizarra.js (null si está cerrada)
 let visor = null;                   // visor de diapositivas (null si no hay)
+let dpPrevia = null;                // diapositiva que MIRA quien presenta sin proyectarla
 let pdfCargado = null;              // ruta del PDF abierto en el visor
 let latido = null;
 let terminada = false;              // ya se enseñó la pantalla final: nada más se pinta
@@ -542,7 +543,11 @@ $("#pz-fullscreen").addEventListener("click", () => pantallaCompleta($("#pizarra
 // --- Diapositivas --------------------------------------------------------------
 async function refrescarDiapositivas(visible) {
   const ruta = sala.presentacion_storage_path;
-  if (!ruta && visor) { await visor.destruir(); visor = null; pdfCargado = null; }
+  if (!ruta && visor) {
+    await visor.destruir();
+    visor = null; pdfCargado = null;
+    dpPrevia = null;
+  }
   if (!ruta || !visible) return;
 
   if (!visor || pdfCargado !== ruta) {
@@ -556,14 +561,21 @@ async function refrescarDiapositivas(visible) {
     }
     pdfCargado = ruta;
   }
-  await visor.ir(sala.presentacion_pagina_actual || 1);
-
   const presento = sala.presentacion_presentador_id === yo.id;
   const total = sala.presentacion_paginas || visor.total;
-  $("#dp-pagina").textContent = `${sala.presentacion_pagina_actual} / ${total}`;
+  const enPantalla = sala.presentacion_pagina_actual || 1;
+  // La vista previa es de ESTE navegador (la tableta del que presenta): la
+  // clase sigue viendo `presentacion_pagina_actual` hasta "Mostrar a todos".
+  if (!presento) dpPrevia = null;
+  if (dpPrevia != null) dpPrevia = Math.max(1, Math.min(dpPrevia, total));
+  if (dpPrevia === enPantalla) dpPrevia = null;
+  const vista = dpPrevia ?? enPantalla;
+  await visor.ir(vista);
+
+  $("#dp-pagina").textContent = `${vista} / ${total}`;
+  $("#dp-pagina").classList.toggle("dp-pagina-previa", dpPrevia != null);
   $("#dp-nombre").textContent = sala.presentacion_nombre || "";
-  $("#dp-anterior").disabled = !presento || sala.presentacion_pagina_actual <= 1;
-  $("#dp-siguiente").disabled = !presento || sala.presentacion_pagina_actual >= total;
+  pintarMinis(total, presento, enPantalla, vista);
   $("#dp-cerrar").classList.toggle("oculto", !soyDir());
   $("#dp-tomar").classList.toggle("oculto", !soyDir() || presento);
   const pres = participantes.get(sala.presentacion_presentador_id);
@@ -618,16 +630,66 @@ $("#dp-input").addEventListener("change", async (e) => {
   }
 });
 
-async function cambiarPagina(delta) {
-  if (sala.presentacion_presentador_id !== yo.id) return;
-  const total = sala.presentacion_paginas || 1;
-  const nueva = Math.max(1, Math.min((sala.presentacion_pagina_actual || 1) + delta, total));
-  if (nueva === sala.presentacion_pagina_actual) return;
-  const { error } = await sb.rpc("sala_ir_a_pagina", { p_sala: salaId, p_pagina: nueva });
-  if (error) aviso(error.message);
+// En lugar de flechas, quien presenta ve la ANTERIOR y la SIGUIENTE en
+// miniatura. Toca una y esa se ve grande en su pantalla; la clase sigue en la
+// suya hasta que toque "Mostrar a todos", que vive encima de la diapositiva.
+function pintarMinis(total, presento, enPantalla, vista) {
+  for (const [sel, n] of [["#dp-mini-ant", vista - 1], ["#dp-mini-sig", vista + 1]]) {
+    const b = $(sel);
+    const hay = presento && visor && n >= 1 && n <= total;
+    b.classList.toggle("oculto", !hay);
+    if (!hay) continue;
+    b.classList.toggle("en-pantalla", n === enPantalla);
+    b.querySelector(".dp-mini-num").textContent = n;
+    const lamina = b.querySelector(".dp-mini-lamina");
+    // La imagen llega cuando esté; mientras tanto se ve el hueco gris.
+    if (lamina.dataset.pagina !== String(n)) {
+      lamina.dataset.pagina = String(n);
+      lamina.style.backgroundImage = "";
+      lamina.classList.remove("lista");
+      visor.miniatura(n).then((url) => {
+        if (!url || lamina.dataset.pagina !== String(n)) return;
+        lamina.style.backgroundImage = `url("${url}")`;
+        lamina.classList.add("lista");
+      });
+    }
+  }
+  $("#dp-mando").classList.toggle("oculto", !presento || dpPrevia == null);
+  $("#dp-en-pantalla").classList.toggle("oculto", !presento || dpPrevia != null);
+  $("#dp-volver").textContent = `Volver a la ${enPantalla}`;
 }
-$("#dp-anterior").addEventListener("click", () => cambiarPagina(-1));
-$("#dp-siguiente").addEventListener("click", () => cambiarPagina(1));
+
+// Mirar la de al lado (miniatura, teclado o clicker) no toca la pantalla de la
+// clase; proyectar es siempre un acto aparte.
+async function mirar(delta) {
+  if (sala.presentacion_presentador_id !== yo.id || !visor) return;
+  const total = sala.presentacion_paginas || visor.total || 1;
+  const enPantalla = sala.presentacion_pagina_actual || 1;
+  const ahora = dpPrevia ?? enPantalla;
+  const nueva = Math.max(1, Math.min(ahora + delta, total));
+  if (nueva === ahora) return;
+  dpPrevia = nueva === enPantalla ? null : nueva;
+  await refrescarDiapositivas(true);
+}
+
+async function mostrarPrevia() {
+  if (dpPrevia == null || sala.presentacion_presentador_id !== yo.id) return;
+  const pagina = dpPrevia;
+  dpPrevia = null;
+  const { error } = await sb.rpc("sala_ir_a_pagina", { p_sala: salaId, p_pagina: pagina });
+  if (error) { dpPrevia = pagina; aviso(error.message); }
+  await refrescarDiapositivas(true);
+}
+
+async function volverDePrevia() {
+  dpPrevia = null;
+  await refrescarDiapositivas(true);
+}
+
+$("#dp-mini-ant").addEventListener("click", () => mirar(-1));
+$("#dp-mini-sig").addEventListener("click", () => mirar(1));
+$("#dp-mostrar").addEventListener("click", mostrarPrevia);
+$("#dp-volver").addEventListener("click", volverDePrevia);
 $("#dp-cerrar").addEventListener("click", cerrarPresentacion);
 $("#dp-tomar").addEventListener("click", () => actualizarSala({ presentacion_presentador_id: yo.id }));
 $("#dp-fullscreen").addEventListener("click", () => pantallaCompleta($("#diapositivas")));
@@ -635,8 +697,10 @@ $("#dp-fullscreen").addEventListener("click", () => pantallaCompleta($("#diaposi
 document.addEventListener("keydown", (e) => {
   if (!sala || sala.pizarra_abierta || sala.presentacion_presentador_id !== yo?.id) return;
   if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) return;
-  if (["ArrowLeft", "PageUp"].includes(e.key)) { e.preventDefault(); cambiarPagina(-1); }
-  else if (["ArrowRight", "PageDown", " "].includes(e.key)) { e.preventDefault(); cambiarPagina(1); }
+  if (["ArrowLeft", "PageUp"].includes(e.key)) { e.preventDefault(); mirar(-1); }
+  else if (["ArrowRight", "PageDown", " "].includes(e.key)) { e.preventDefault(); mirar(1); }
+  // Con un control de presentación: las flechas miran, Enter proyecta.
+  else if (e.key === "Enter") { e.preventDefault(); mostrarPrevia(); }
 });
 
 // --- Pestañas, invitar y salir ------------------------------------------------

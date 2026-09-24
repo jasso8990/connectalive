@@ -77,6 +77,29 @@ export async function crearVisor({ fuente, canvas, contenedor, alMedir }) {
     catch (e) { if (e?.name !== "RenderingCancelledException") throw e; }
   }
 
+  // Miniaturas para la tira de quien presenta. Se pintan en su propio canvas
+  // (no en el grande) y se guardan ya hechas: pasar la tira no vuelve a
+  // trabajar. Van de una en una para no pelearse con la página grande.
+  const minis = new Map();
+  let cola = Promise.resolve();
+  function miniatura(n, ancho = 220) {
+    if (minis.has(n)) return Promise.resolve(minis.get(n));
+    cola = cola.then(async () => {
+      if (minis.has(n)) return minis.get(n);
+      const p = await doc.getPage(n);
+      const base = p.getViewport({ scale: 1 });
+      const v = p.getViewport({ scale: ancho / base.width });
+      const c = document.createElement("canvas");
+      c.width = Math.round(v.width);
+      c.height = Math.round(v.height);
+      await p.render({ canvasContext: c.getContext("2d"), viewport: v }).promise;
+      const url = c.toDataURL("image/jpeg", 0.72);
+      minis.set(n, url);
+      return url;
+    }).catch(() => null);
+    return cola;
+  }
+
   let espera = null;
   const observador = new ResizeObserver(() => {
     clearTimeout(espera);
@@ -87,6 +110,7 @@ export async function crearVisor({ fuente, canvas, contenedor, alMedir }) {
   return {
     get pagina() { return pagina; },
     get total() { return doc.numPages; },
+    miniatura,
     async ir(n) {
       pagina = Math.max(1, Math.min(n || 1, doc.numPages));
       await pintar();

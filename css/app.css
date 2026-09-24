@@ -454,6 +454,16 @@ dialog .acciones button.btn-primario { background: var(--primario); color: #fff;
 .lienzo-envoltura canvas { width: 100%; height: 100%; display: block; }
 .lienzo-editable { cursor: crosshair; }
 .lienzo-zoom { cursor: grab; }
+.lienzo-texto-activo { cursor: text; }
+/* Recuadro de texto: se escribe aquí encima y al soltarlo queda dibujado en el
+   lienzo. Sin borde ni relleno propios (el marco es un outline) para que la
+   letra caiga exactamente donde va a quedar. */
+.lienzo-texto { position: absolute; z-index: 6; margin: 0; padding: 0; border: 0; resize: none; overflow: hidden;
+  background: rgba(37,99,235,.06); outline: 2px dashed var(--primario); outline-offset: 2px; border-radius: 2px;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-weight: 600; line-height: 1.25; white-space: pre-wrap; }
+.lienzo-texto::placeholder { color: rgba(100,116,139,.65); font-weight: 500; }
+.lienzo-texto:focus { outline-color: var(--primario); }
 
 /* Barra de herramientas de dibujo */
 .barra-dibujo { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px;
@@ -496,10 +506,32 @@ dialog .acciones button.btn-primario { background: var(--primario); color: #fff;
 .control-pestanas button { flex: 1; border: 0; background: transparent; padding: 9px; border-radius: 8px; font: inherit; font-weight: 600; color: var(--texto-suave); cursor: pointer; }
 .control-pestanas button.activo { background: #fff; color: var(--primario); box-shadow: 0 1px 3px rgba(15,23,42,.12); }
 .control-botones { display: flex; gap: 10px; }
-.control-mirar { justify-content: space-between; margin-top: 6px; }
-.control-mirar .btn-lineal:disabled { opacity: .4; }
-.vista-privada { background: #fdf4ff; border: 1px solid #f5d0fe; border-radius: var(--radio-chico); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
-.vista-privada .linea .btn { flex: 1; }
+
+/* La anterior y la siguiente, en miniatura, en lugar de flechas. El borde
+   verde marca la que está viendo la gente. */
+.dp-mini { position: relative; flex: 0 0 auto; width: 96px; padding: 0; cursor: pointer;
+  background: #fff; border: 2px solid var(--linea); border-radius: 10px; overflow: hidden; }
+.dp-mini:focus-visible { outline: 2px solid var(--primario); outline-offset: 2px; }
+.dp-mini-lamina { display: block; width: 100%; aspect-ratio: 4 / 3; background: #e2e8f0 center / contain no-repeat; }
+.dp-mini-lamina.lista { background-color: #fff; }
+.dp-mini-num { position: absolute; left: 4px; bottom: 4px; background: rgba(15,23,42,.82); color: #fff;
+  font-size: 11px; line-height: 1.7; padding: 0 7px; border-radius: 999px; font-variant-numeric: tabular-nums; }
+.dp-mini.en-pantalla { border-color: #16a34a; }
+.dp-dos { display: flex; align-items: center; justify-content: center; gap: 14px; }
+.modo-tableta .dp-mini { width: 132px; }
+
+/* El mando vive ENCIMA de la diapositiva: desde la misma diapositiva se decide
+   si la ve la gente o no. */
+.dp-mando { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 20;
+  display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.dp-mando .btn { box-shadow: 0 8px 24px rgba(15,23,42,.35); }
+.dp-volver { border: 0; background: rgba(15,23,42,.72); color: #fff; font: inherit; font-size: 12.5px;
+  padding: 4px 12px; border-radius: 999px; cursor: pointer; }
+.dp-en-pantalla { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 20;
+  background: rgba(22,163,74,.92); color: #fff; font-size: 12.5px; padding: 5px 12px; border-radius: 999px; }
+/* El número de diapositiva cambia de color mientras es vista previa: así no se
+   confunde con la que está viendo la clase. */
+.dp-pagina-previa { color: #a21caf; font-weight: 800; }
 .control-zoom { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; }
 .control-zoom strong { min-width: 56px; text-align: center; }
 .modo-control .diapo-caja { flex: 1 1 55%; }

@@ -58,6 +58,7 @@
           <button type="button" data-herr="lapiz" title="Lápiz" aria-label="Lápiz"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
           <button type="button" data-herr="rect" title="Recuadro" aria-label="Recuadro"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="4" y="5" width="16" height="14" rx="1"/></svg></button>
           <button type="button" data-herr="circulo" title="Círculo" aria-label="Círculo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="8"/></svg></button>
+          <button type="button" data-herr="texto" title="Texto: marca un recuadro y escribe con el teclado" aria-label="Texto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6V4h14v2"/><path d="M12 4v16"/><path d="M9 20h6"/></svg></button>
           <button type="button" data-herr="borrador" title="Borrador" aria-label="Borrador"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3a1 1 0 0 1 0-1.4l10-10a1 1 0 0 1 1.4 0l5.6 5.6a1 1 0 0 1 0 1.4L11 21"/><path d="M22 21H7"/></svg></button>
           <span class="barra-sep"></span>
           <button type="button" class="color" data-color="#18212f" aria-label="Negro"></button>
@@ -86,15 +87,19 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8V5a2 2 0 0 1 2-2h3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M21 16v3a2 2 0 0 1-2 2h-3"/></svg>
         </button>
         <input type="file" id="dp-input" accept="application/pdf,.pdf" hidden>
+        <!-- Desde la misma diapositiva se decide si la ve la clase o no. -->
+        <div class="dp-mando oculto" id="dp-mando">
+          <button type="button" class="btn btn-primario" id="dp-mostrar">Mostrar a todos</button>
+          <button type="button" class="dp-volver" id="dp-volver">Volver a la que se ve</button>
+        </div>
+        <span class="dp-en-pantalla oculto" id="dp-en-pantalla">● En pantalla</span>
       </div>
       <div class="diapo-toolbar" id="dp-toolbar">
-        <button type="button" id="dp-anterior" class="btn btn-secundario" aria-label="Anterior">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-        </button>
+        <!-- En lugar de flechas: la anterior y la siguiente, en miniatura.
+             Sólo las ve quien presenta. -->
+        <button type="button" class="dp-mini oculto" id="dp-mini-ant" aria-label="Ver la anterior"><span class="dp-mini-lamina"></span><span class="dp-mini-num"></span></button>
         <span class="dp-pagina" id="dp-pagina">— / —</span>
-        <button type="button" id="dp-siguiente" class="btn btn-secundario" aria-label="Siguiente">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-        </button>
+        <button type="button" class="dp-mini oculto" id="dp-mini-sig" aria-label="Ver la siguiente"><span class="dp-mini-lamina"></span><span class="dp-mini-num"></span></button>
         <span class="dp-nombre" id="dp-nombre"></span>
         <span class="dp-estado" id="dp-estado">—</span>
         <button type="button" id="dp-tomar" class="btn btn-secundario btn-chico oculto">Presentar yo</button>

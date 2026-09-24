@@ -182,7 +182,6 @@ async function irA(n, avisar) {
   n = Math.max(1, Math.min(n, visor.total));
   pagina = n;
   privada = null;
-  $("#vista-privada")?.classList.add("oculto");
   vistaPantalla = { zoom: 100, x: 0, y: 0 };
   lienzo.setDiapositiva(n);
   lienzo.setVista(vistaPantalla);
@@ -193,13 +192,42 @@ async function irA(n, avisar) {
   if (esControl) aplicarPestana();
 }
 
+/** La diapositiva que mira este dispositivo (la previa, si la hay). */
+function vistaActual() { return privada ?? pagina; }
+
 function pintarPagina() {
-  $("#chip-pagina").textContent = `${pagina} / ${visor.total}`;
+  $("#chip-pagina").textContent = `${vistaActual()} / ${visor.total}`;
   if (!esControl) return;
-  $("#btn-anterior").disabled = pagina <= 1;
-  $("#btn-siguiente").disabled = pagina >= visor.total;
-  $("#btn-ver-anterior").disabled = pagina <= 1;
-  $("#btn-ver-siguiente").disabled = pagina >= visor.total;
+  pintarMinis();
+}
+
+// En lugar de flechas: la anterior y la siguiente en miniatura. El botón de
+// proyectar vive encima de la diapositiva, no aquí abajo.
+function pintarMinis() {
+  const vista = vistaActual();
+  for (const [sel, n] of [["#mini-ant", vista - 1], ["#mini-sig", vista + 1]]) {
+    const b = $(sel);
+    if (!b) continue;
+    const hay = n >= 1 && n <= visor.total;
+    b.classList.toggle("oculto", !hay);
+    if (!hay) continue;
+    b.classList.toggle("en-pantalla", n === pagina);
+    b.querySelector(".dp-mini-num").textContent = n;
+    const lamina = b.querySelector(".dp-mini-lamina");
+    if (lamina.dataset.pagina !== String(n)) {
+      lamina.dataset.pagina = String(n);
+      lamina.style.backgroundImage = "";
+      lamina.classList.remove("lista");
+      visor.miniatura(n).then((url) => {
+        if (!url || lamina.dataset.pagina !== String(n)) return;
+        lamina.style.backgroundImage = `url("${url}")`;
+        lamina.classList.add("lista");
+      });
+    }
+  }
+  $("#dp-mando").classList.toggle("oculto", privada == null);
+  $("#dp-en-pantalla").classList.toggle("oculto", privada != null);
+  $("#vp-volver").textContent = `Volver a la ${pagina}`;
 }
 function pintarZoom() {
   const z = $("#zoom-valor");
@@ -237,24 +265,23 @@ function aplicarPestana() {
   else if (lienzo.herramienta === "zoom") lienzo.setHerramienta("lapiz");
 }
 
+// Mirar primero: las flechas mueven esta vista y la pantalla no se entera.
 async function mirarPrivada(n) {
   if (n < 1 || n > visor.total) return;
+  if (n === pagina) return salirPrivada();
   privada = n;
   lienzo.setDiapositiva(n);
   lienzo.setVista({ zoom: 100, x: 0, y: 0 });
   await visor.ir(n);
-  $("#vp-num").textContent = `Diapositiva ${n}`;
-  $("#vista-privada").classList.remove("oculto");
-  $("#botones-diapo").classList.add("oculto");
+  pintarPagina();
   aplicarPestana();
 }
 async function salirPrivada() {
   privada = null;
-  $("#vista-privada").classList.add("oculto");
-  $("#botones-diapo").classList.remove("oculto");
   lienzo.setDiapositiva(pagina);
   lienzo.setVista(vistaPantalla);
   await visor.ir(pagina);
+  pintarPagina();
   aplicarPestana();
 }
 
@@ -279,17 +306,16 @@ async function arrancarControl() {
   lienzo.setColor("#dc2626");
   $('#barra [data-color="#dc2626"]').classList.add("activo");
 
-  $$(".control-pestanas button").forEach((b) => b.addEventListener("click", () => {
+  $("#mini-ant").addEventListener("click", () => mirarPrivada(vistaActual() - 1));
+  $("#mini-sig").addEventListener("click", () => mirarPrivada(vistaActual() + 1));
+
+  $(".control-pestanas button").forEach((b) => b.addEventListener("click", () => {
     pestana = b.dataset.pestana;
     if (privada != null && pestana !== "diapos") salirPrivada();
     aplicarPestana();
   }));
   aplicarPestana();
 
-  $("#btn-anterior").addEventListener("click", () => irA(pagina - 1, true));
-  $("#btn-siguiente").addEventListener("click", () => irA(pagina + 1, true));
-  $("#btn-ver-anterior").addEventListener("click", () => mirarPrivada(pagina - 1));
-  $("#btn-ver-siguiente").addEventListener("click", () => mirarPrivada(pagina + 1));
   $("#vp-volver").addEventListener("click", salirPrivada);
   $("#vp-mostrar").addEventListener("click", () => irA(privada, true));
 
