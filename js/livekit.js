@@ -24,17 +24,8 @@ export function cargarLivekit() {
 
 /** Pide token al backend y devuelve { token, url }. */
 async function pedirToken({ salaId, participanteId }) {
-  const { sb } = await import("./supabase.js");
-  const { data: { session } } = await sb.auth.getSession();
-  if (!session) throw new Error("sin sesión");
-  const r = await fetch(TOKEN_ENDPOINT, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${session.access_token}`,
-    },
-    body: JSON.stringify({ salaId, participanteId }),
-  });
+  const { postConSesion } = await import("./auth.js");
+  const r = await postConSesion(TOKEN_ENDPOINT, { salaId, participanteId });
   if (!r.ok) {
     let cuerpo = null;
     try { cuerpo = await r.json(); } catch { /* no era JSON */ }

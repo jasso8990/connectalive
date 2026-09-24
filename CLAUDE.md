@@ -18,7 +18,8 @@ cuestan. Sólo **dar** una clase en vivo lleva plan; unirse es gratis.
 ## Identidad e infra
 
 - **Dominio**: `connectalive.smrt-app.org` (subdominio de la casa).
-- **Repo local**: `repos/connectalive`. Rama `main`.
+- **Repo local**: `repos/connectalive`. Rama `master` (no hay `main`: es la
+  que publica Netlify).
 - **Netlify**: sin build. `publish = "."`, la carpeta se publica tal cual.
   Las funciones serverless viven en `netlify/functions/` con `esbuild` como
   bundler (para escribir `import`/`export` sin rollos).
@@ -48,6 +49,16 @@ cuestan. Sólo **dar** una clase en vivo lleva plan; unirse es gratis.
   `https://connectalive.smrt-app.org/**` y lo mismo para
   `connectalive.netlify.app`. El Site URL del proyecto es LigaBC: si falta
   el dominio en esa lista, el correo de confirmación manda a LigaBC.
+
+- **`salir()` cierra sesión sólo en este navegador** (`signOut({ scope:
+  "local" })`). El `signOut()` de fábrica es global y revocaba la sesión del
+  usuario en sus otras ventanas y en Smartagent, Cancha y Market. Eso se veía
+  como `No se pudo conectar el video (401 — sesión inválida)`: la sala se
+  pintaba entera (PostgREST y Realtime sólo miran la firma del JWT) y sólo
+  moría el video, porque `token.js` pregunta por la sesión en `/auth/v1/user`.
+- Todo `fetch` a `netlify/functions/*` va por `postConSesion()` (en
+  `js/auth.js`): ante un 401 renueva la sesión una vez, reintenta, y si no,
+  lanza un error con `sesionCaducada` para ofrecer «Volver a entrar».
 
 **Todos los participantes se autentican con correo/contraseña**, mismo
 patrón que Vitalia. No hay ruta de invitado anónimo. La regla vive donde

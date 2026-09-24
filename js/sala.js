@@ -10,7 +10,7 @@
 // LiveKit en caliente (sin reconectar).
 
 import { sb } from "./supabase.js";
-import { requireUser } from "./auth.js";
+import { requireUser, postConSesion, rutaDeEntrada } from "./auth.js";
 import { conectarSala, cargarLivekit } from "./livekit.js";
 import { STORAGE_BUCKET, PERMISO_ENDPOINT } from "./config.js";
 import { crearPizarra } from "./pizarra.js";
@@ -320,12 +320,7 @@ async function onResolverSolicitud(e) {
 
 async function sincronizarPermisos(participanteId) {
   try {
-    const { data: { session } } = await sb.auth.getSession();
-    const r = await fetch(PERMISO_ENDPOINT, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${session.access_token}` },
-      body: JSON.stringify({ salaId, participanteId }),
-    });
+    const r = await postConSesion(PERMISO_ENDPOINT, { salaId, participanteId });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `permiso ${r.status}`);
   } catch (err) {
     aviso(`El cambio quedó guardado, pero el video no lo reflejó: ${err.message}`);
@@ -862,7 +857,12 @@ try {
     } catch (err) {
       console.error(err);
       // Sin video (sin minutos, plan vencido, sin red): lo demás de la clase sigue.
-      $("#tarima").innerHTML = `<div class="tarima-vacia">No se pudo conectar el video.<br><small>${escapar(err.message)}</small></div>`;
+      // Si lo que se cayó fue la sesión, no hay nada que reintentar: hay que
+      // volver a entrar, y el botón trae de regreso a esta misma sala.
+      const volver = err.sesionCaducada
+        ? `<br><a class="btn btn-primario" href="${rutaDeEntrada()}">Volver a entrar</a>`
+        : "";
+      $("#tarima").innerHTML = `<div class="tarima-vacia">No se pudo conectar el video.<br><small>${escapar(err.message)}</small>${volver}</div>`;
     }
   }
 } catch (err) {

@@ -50,9 +50,61 @@ export async function registrar(email, password, nombre) {
   return data.user;
 }
 
-/** Cerrar sesión. */
+/** Cerrar sesión sólo en ESTE navegador.
+ *
+ * `scope: "local"` es a propósito. El `signOut()` de fábrica es *global*:
+ * revoca la sesión del usuario en todas sus ventanas, en sus otros aparatos y
+ * en las apps hermanas del mismo Supabase (Smartagent, Cancha, Market).
+ * Quien salía de una clase dejaba muerta la sesión de su otra ventana, y esa
+ * ventana seguía pintando la clase —PostgREST y Realtime sólo miran la firma
+ * del JWT, no si la sesión existe— pero el video moría con "401 — sesión
+ * inválida", porque la función del token sí pregunta por ella en
+ * `/auth/v1/user`.
+ */
 export async function salir() {
-  await sb.auth.signOut();
+  await sb.auth.signOut({ scope: "local" });
+}
+
+/** POST a una función del servidor, firmado con la sesión del usuario.
+ *
+ * Un 401 casi siempre significa que el token guardado viene de una sesión ya
+ * revocada (ver `salir`). Se renueva una vez y se reintenta; si tampoco pasa,
+ * el error lleva `sesionCaducada` para que quien llama mande a entrar de nuevo
+ * en vez de enseñar un número.
+ */
+export async function postConSesion(url, cuerpo) {
+  const enviar = async () => {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) throw sesionCaducada();
+    return fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify(cuerpo),
+    });
+  };
+
+  let r = await enviar();
+  if (r.status === 401) {
+    const { data, error } = await sb.auth.refreshSession();
+    if (error || !data?.session) throw sesionCaducada();
+    r = await enviar();
+    if (r.status === 401) throw sesionCaducada();
+  }
+  return r;
+}
+
+/** A dónde mandar a quien se quedó sin sesión, para que vuelva a esta página. */
+export function rutaDeEntrada() {
+  return `/entrar?volver=${encodeURIComponent(location.pathname + location.search)}`;
+}
+
+function sesionCaducada() {
+  const e = new Error("Tu sesión caducó. Vuelve a entrar para seguir.");
+  e.sesionCaducada = true;
+  return e;
 }
 
 /** Nombre para mostrar (del user_metadata, o el correo antes del @). */
