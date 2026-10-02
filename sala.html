@@ -173,6 +173,9 @@
     <button id="btn-mano" class="btn-icono destacado" title="Levantar la mano" aria-label="Levantar la mano">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 11V6a2 2 0 0 0-4 0"/><path d="M14 10V4a2 2 0 0 0-4 0v6"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>
     </button>
+    <button id="btn-aparatos" class="btn-icono" title="Micrófono, cámara y bocina" aria-label="Elegir micrófono, cámara y bocina">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="2" y1="14" x2="6" y2="14"/><line x1="10" y1="8" x2="14" y2="8"/><line x1="18" y1="16" x2="22" y2="16"/></svg>
+    </button>
   </footer>
 
   <!-- Diálogo del dirigente para elegir destinatarios de un archivo -->
@@ -239,6 +242,26 @@
       </menu>
     </form>
   </dialog>
+
+  <!-- Micrófono, cámara y bocina (cada quien los suyos; se recuerdan en este navegador) -->
+  <dialog id="dlg-aparatos">
+    <div class="stack">
+      <h3>Micrófono, cámara y bocina</h3>
+      <label class="campo"><span>Micrófono</span><select id="ap-audioinput"></select></label>
+      <label class="campo"><span>Cámara</span><select id="ap-videoinput"></select></label>
+      <label class="campo"><span>Bocina</span><select id="ap-audiooutput"></select></label>
+      <p class="pista pista-chica oculto" id="ap-sin-salida">Este navegador no deja elegir la bocina desde la página: usa la que tenga puesta tu equipo.</p>
+      <menu class="acciones"><button type="button" id="ap-cerrar">Listo</button></menu>
+    </div>
+  </dialog>
+
+  <!-- Estado del video: reconectando. -->
+  <div class="estado-video oculto" id="estado-video" role="status"><i class="girando"></i><span></span></div>
+  <!-- El navegador bloqueó el sonido hasta que la persona toque algo. -->
+  <button type="button" class="btn btn-primario btn-sonido oculto" id="btn-sonido">Activar sonido de la clase</button>
+  <!-- Los audios de los demás viven aquí, fuera de los cuadros: mover un
+       cuadro de la tarima a la tira nunca corta el sonido. -->
+  <div id="audios" hidden></div>
 
   <div class="aviso-flotante aviso-sala oculto" id="aviso"></div>
 

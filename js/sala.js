@@ -11,7 +11,7 @@
 
 import { sb } from "./supabase.js";
 import { requireUser, postConSesion, rutaDeEntrada } from "./auth.js";
-import { conectarSala, cargarLivekit } from "./livekit.js";
+import { conectarSala, cargarLivekit, aparatosGuardados, guardarAparato, OPCIONES_PANTALLA } from "./livekit.js";
 import { STORAGE_BUCKET, PERMISO_ENDPOINT } from "./config.js";
 import { crearPizarra } from "./pizarra.js";
 import { crearVisor, contarPaginas } from "./diapositivas.js";
@@ -57,6 +57,7 @@ let dpPrevia = null;                // diapositiva que MIRA quien presenta sin p
 let pdfCargado = null;              // ruta del PDF abierto en el visor
 let latido = null;
 let terminada = false;              // ya se enseñó la pantalla final: nada más se pinta
+let quiero = { mic: false, cam: false, pantalla: false }; // lo que la persona prendió (para reponerlo al reconectar)
 
 const soyDir = () => yo?.rol === "dirigente";
 
@@ -126,10 +127,13 @@ function aplicarMiRol() {
   $("#mi-rol").dataset.rol = yo.rol;
 
   const puedeHablar = !modoControl && (yo.rol !== "oyente" || yo.voz_activa);
+  // Sin permiso de hablar, LiveKit ya le bajó todo: al reconectar no se reprende.
+  if (!puedeHablar) quiero = { mic: false, cam: false, pantalla: false };
   $("#btn-mic").classList.toggle("oculto", !puedeHablar);
   $("#btn-cam").classList.toggle("oculto", !puedeHablar);
   $("#btn-pantalla").classList.toggle("oculto", !puedeHablar);
   $("#btn-mano").classList.toggle("oculto", yo.rol !== "oyente" || modoControl);
+  $("#btn-aparatos").classList.toggle("oculto", modoControl);
   $("#btn-pizarra").classList.toggle("oculto", yo.rol === "oyente");
   $("#btn-invitar").classList.toggle("oculto", !soyDir() || modoControl);
   $("#btn-tableta").classList.toggle("oculto", !soyDir() || modoControl);
@@ -409,6 +413,7 @@ $("#btn-mano").addEventListener("click", async () => {
       await room?.localParticipant.setCameraEnabled(false);
       await room?.localParticipant.setScreenShareEnabled(false);
     } catch {}
+    quiero = { mic: false, cam: false, pantalla: false };
     const { error } = await sb.rpc("soltar_palabra", { p_sala: salaId });
     if (error) return aviso(error.message);
     await sincronizarPermisos(yo.id);
@@ -427,21 +432,29 @@ $("#btn-mano").addEventListener("click", async () => {
 });
 
 // --- Micrófono, cámara y pantalla ---------------------------------------------
+// Devuelve true si quedó hecho. `quiero` guarda lo que la persona prendió
+// para volver a prenderlo solo si se cae el video y se reconecta.
 async function alternar(boton, activo, fn) {
-  if (!room) return aviso("El video todavía se está conectando.");
+  if (!room) { aviso("El video todavía se está conectando."); return false; }
   try {
     await fn(!activo);
     boton.dataset.estado = !activo ? "on" : "off";
+    return true;
   } catch (err) {
     aviso(/permission|denied|NotAllowed/i.test(err.message || err.name)
       ? "El navegador no dio permiso. Revísalo en el candado de la barra de direcciones."
       : err.message || "No se pudo");
+    return false;
   }
 }
-$("#btn-mic").addEventListener("click", (e) =>
-  alternar(e.currentTarget, room?.localParticipant.isMicrophoneEnabled, (v) => room.localParticipant.setMicrophoneEnabled(v)));
-$("#btn-cam").addEventListener("click", (e) =>
-  alternar(e.currentTarget, room?.localParticipant.isCameraEnabled, (v) => room.localParticipant.setCameraEnabled(v)));
+$("#btn-mic").addEventListener("click", async (e) => {
+  const activo = !!room?.localParticipant.isMicrophoneEnabled;
+  if (await alternar(e.currentTarget, activo, (v) => room.localParticipant.setMicrophoneEnabled(v))) quiero.mic = !activo;
+});
+$("#btn-cam").addEventListener("click", async (e) => {
+  const activo = !!room?.localParticipant.isCameraEnabled;
+  if (await alternar(e.currentTarget, activo, (v) => room.localParticipant.setCameraEnabled(v))) quiero.cam = !activo;
+});
 
 $("#btn-pantalla").addEventListener("click", async (e) => {
   if (!room) return aviso("El video todavía se está conectando.");
@@ -458,7 +471,8 @@ $("#btn-pantalla").addEventListener("click", async (e) => {
       return aviso("Le pediste permiso al dirigente para compartir tu pantalla.");
     }
   }
-  await alternar(b, comparto, (v) => room.localParticipant.setScreenShareEnabled(v));
+  // Nítido para texto y diapositivas (ver OPCIONES_PANTALLA en livekit.js).
+  if (await alternar(b, comparto, (v) => room.localParticipant.setScreenShareEnabled(v, OPCIONES_PANTALLA))) quiero.pantalla = !comparto;
   // Al dejar de compartir, el permiso se gasta: la próxima vez se vuelve a pedir.
   if (comparto && !soyDir()) {
     const aprobada = solicitudes.find((s) => s.participante_id === yo.id && s.tipo === "compartir" && s.estado === "aprobada");
@@ -830,85 +844,355 @@ function suscribir() {
 // --- LiveKit -------------------------------------------------------------------
 // Se pintan quienes transmiten algo (cámara, micrófono o pantalla) y el
 // dirigente; los oyentes callados no llenan la pantalla de cuadros negros.
+//
+// Cada quien tiene UN cuadro que vive mientras está en la sala; los eventos
+// sólo le ponen o le quitan pistas. Antes se rehacía todo en cada evento, y
+// soltar un <video> con adaptiveStream le dice al servidor «ya nadie lo ve»:
+// lo pausaba y lo volvía a empezar desde la capa baja. Se veía como parpadeo
+// y video borroso en TODOS cada vez que alguien entraba o se silenciaba.
+// Los <audio> viven aparte (#audios): mover un cuadro nunca corta el sonido.
+const cajas = new Map();            // identity → { box, label, senal, inicial, medios: Map(sid → { track, el }) }
+let hablando = new Set();           // identities que están hablando ahora
+let reconectando = false;
+
+const NOMBRE_SENAL = { excellent: "Conexión excelente", good: "Conexión buena", poor: "Conexión débil", lost: "Sin conexión" };
+
+function cajaDe(p) {
+  let c = cajas.get(p.identity);
+  if (c) return c;
+  const box = document.createElement("div");
+  box.className = "video-box";
+  const inicial = document.createElement("div");
+  inicial.className = "video-inicial";
+  const label = document.createElement("div");
+  label.className = "video-label";
+  const senal = document.createElement("span");
+  senal.className = "video-senal";
+  senal.innerHTML = "<i></i><i></i><i></i>";
+  box.append(inicial, label, senal);
+  c = { box, label, senal, inicial, medios: new Map() };
+  cajas.set(p.identity, c);
+  ponerSenal(c, p.connectionQuality);
+  return c;
+}
+
+function ponerSenal(c, q) {
+  c.senal.dataset.q = q || "unknown";
+  c.senal.title = NOMBRE_SENAL[q] || "";
+}
+
+function soltarMedio(m) {
+  try { m.track.detach(m.el); } catch {}
+  m.el.remove();
+}
+
+function soltarCaja(id) {
+  const c = cajas.get(id);
+  if (!c) return;
+  for (const m of c.medios.values()) soltarMedio(m);
+  c.box.remove();
+  cajas.delete(id);
+}
+
+function limpiarVideos() {
+  for (const id of [...cajas.keys()]) soltarCaja(id);
+  $("#audios").innerHTML = "";
+}
+
 function pintarVideos() {
   if (!room || terminada) return;
   const destino = !$("#pizarra").classList.contains("oculto") ? $("#tira-videos")
     : !$("#diapositivas").classList.contains("oculto") ? $("#tira-videos-dp")
     : $("#tarima");
 
-  // Soltar los <video>/<audio> anteriores (si no, se acumulan en memoria).
   const todos = [room.localParticipant, ...room.remoteParticipants.values()];
-  for (const p of todos) for (const pub of p.trackPublications.values()) pub.track?.detach();
-  for (const n of [$("#tarima"), $("#tira-videos"), $("#tira-videos-dp")]) n.innerHTML = "";
-
   // El dirigente va primero: en «Ambos» y «Maestro» es el cuadro grande.
   const esDir = (p) => participantes.get(p.identity)?.rol === "dirigente";
   const orden = [...todos].sort((a, b) => esDir(b) - esDir(a));
+  const visibles = [];
+  const presentes = new Set();
+
   for (const p of orden) {
-    const pubs = [...p.trackPublications.values()].filter((x) => x.track);
+    presentes.add(p.identity);
+    const local = p === room.localParticipant;
+    const pubs = [...p.trackPublications.values()].filter((x) => x.track && !(local && x.kind === "audio"));
     const part = participantes.get(p.identity);
-    const esDirigente = part?.rol === "dirigente";
-    if (!pubs.length && !esDirigente) continue;
+    if (!pubs.length && part?.rol !== "dirigente") { soltarCaja(p.identity); continue; }
 
-    const box = document.createElement("div");
-    box.className = "video-box";
-    const label = document.createElement("div");
-    label.className = "video-label";
-    label.textContent = (part?.nombre_mostrar || p.name || "—") + (p === room.localParticipant ? " (tú)" : "");
-    box.appendChild(label);
+    const c = cajaDe(p);
+    c.label.textContent = (part?.nombre_mostrar || p.name || "—") + (local ? " (tú)" : "");
 
+    // Pistas nuevas o cambiadas: se enganchan una sola vez.
+    const vigentes = new Set();
     for (const pub of pubs) {
-      if (pub.kind === "video") {
+      vigentes.add(pub.trackSid);
+      let m = c.medios.get(pub.trackSid);
+      if (m && m.track !== pub.track) { soltarMedio(m); m = null; }
+      if (!m) {
         const el = pub.track.attach();
-        el.classList.add("video-media");
-        if (pub.source === "screen_share") { el.classList.add("video-screen"); box.classList.add("es-screen"); }
-        else if (p === room.localParticipant) el.classList.add("video-espejo");
-        if (pub.isMuted) el.classList.add("oculto");
-        box.appendChild(el);
-      } else if (pub.kind === "audio" && p !== room.localParticipant) {
-        const el = pub.track.attach();
-        el.style.display = "none";
-        box.appendChild(el);
+        if (pub.kind === "video") {
+          el.classList.add("video-media");
+          if (pub.source === "screen_share") el.classList.add("video-screen");
+          else if (local) el.classList.add("video-espejo");
+          c.box.insertBefore(el, c.inicial);
+        } else {
+          $("#audios").appendChild(el);
+        }
+        m = { track: pub.track, el };
+        c.medios.set(pub.trackSid, m);
       }
+      if (pub.kind === "video") m.el.classList.toggle("oculto", pub.isMuted);
     }
-    if (!box.querySelector("video:not(.oculto)")) {
-      const ini = document.createElement("div");
-      ini.className = "video-inicial";
-      ini.textContent = (label.textContent.trim()[0] || "?").toUpperCase();
-      box.appendChild(ini);
-    }
-    destino.appendChild(box);
+    // Pistas que ya no están.
+    for (const [sid, m] of c.medios) if (!vigentes.has(sid)) { soltarMedio(m); c.medios.delete(sid); }
+
+    c.box.classList.toggle("es-screen", !!c.box.querySelector(".video-screen"));
+    const conVideo = !!c.box.querySelector("video:not(.oculto)");
+    c.inicial.classList.toggle("oculto", conVideo);
+    c.inicial.textContent = (c.label.textContent.trim()[0] || "?").toUpperCase();
+    c.box.classList.toggle("hablando", hablando.has(p.identity));
+    visibles.push(c.box);
   }
-  if (!destino.children.length && destino.id === "tarima") {
+  for (const id of [...cajas.keys()]) if (!presentes.has(id)) soltarCaja(id);
+
+  // Acomodar sin sacar del documento lo que ya está en su lugar. Mover un
+  // nodo con insertBefore no reinicia su <video>.
+  for (const n of [$("#tarima"), $("#tira-videos"), $("#tira-videos-dp")]) {
+    for (const hijo of [...n.children]) if (!visibles.includes(hijo)) hijo.remove();
+  }
+  visibles.forEach((box, i) => {
+    if (destino.children[i] !== box) destino.insertBefore(box, destino.children[i] || null);
+  });
+  if (!visibles.length && destino.id === "tarima") {
     destino.innerHTML = '<div class="tarima-vacia">Nadie está transmitiendo todavía.</div>';
   }
 }
 
-async function conectarLK() {
-  const r = await conectarSala({ salaId, participanteId: yo.id });
-  room = r.room;
-  LK = r.LK;
+function pintarHablando() {
+  for (const [id, c] of cajas) c.box.classList.toggle("hablando", hablando.has(id));
+}
+
+function pintarBotones() {
+  if (!room) return;
+  const lp = room.localParticipant;
+  $("#btn-pantalla").dataset.estado = lp.isScreenShareEnabled ? "on" : "off";
+  $("#btn-mic").dataset.estado = lp.isMicrophoneEnabled ? "on" : "off";
+  $("#btn-cam").dataset.estado = lp.isCameraEnabled ? "on" : "off";
+}
+
+// Barra de estado arriba de la tarima: reconectando o sonido bloqueado.
+function estadoVideo(texto) {
+  const n = $("#estado-video");
+  n.querySelector("span").textContent = texto || "";
+  n.classList.toggle("oculto", !texto);
+}
+
+// iPhone, iPad y a veces Chrome no dejan sonar el audio hasta que la persona
+// toca algo en la página. Sin este botón, el alumno ve al maestro y no lo oye.
+function revisarSonido() {
+  $("#btn-sonido").classList.toggle("oculto", !room || room.canPlaybackAudio);
+}
+$("#btn-sonido").addEventListener("click", async () => {
+  try { await room?.startAudio(); } catch {}
+  revisarSonido();
+});
+
+function cablear(nuevo) {
   const E = LK.RoomEvent;
+  const si = (fn) => (...a) => { if (nuevo === room) fn(...a); };
   for (const ev of [E.TrackSubscribed, E.TrackUnsubscribed, E.ParticipantConnected, E.ParticipantDisconnected,
                     E.LocalTrackPublished, E.LocalTrackUnpublished, E.TrackMuted, E.TrackUnmuted]) {
-    room.on(ev, pintarVideos);
+    nuevo.on(ev, si(pintarVideos));
   }
   // Si el navegador corta la pantalla compartida desde su propia barra.
-  room.on(E.LocalTrackUnpublished, () => {
-    $("#btn-pantalla").dataset.estado = room.localParticipant.isScreenShareEnabled ? "on" : "off";
-    $("#btn-mic").dataset.estado = room.localParticipant.isMicrophoneEnabled ? "on" : "off";
-    $("#btn-cam").dataset.estado = room.localParticipant.isCameraEnabled ? "on" : "off";
+  for (const ev of [E.LocalTrackPublished, E.LocalTrackUnpublished, E.TrackMuted, E.TrackUnmuted]) {
+    nuevo.on(ev, si(pintarBotones));
+  }
+  nuevo.on(E.ActiveSpeakersChanged, si((speakers) => {
+    hablando = new Set(speakers.map((s) => s.identity));
+    pintarHablando();
+  }));
+  nuevo.on(E.ConnectionQualityChanged, si((q, p) => {
+    const c = cajas.get(p.identity);
+    if (c) ponerSenal(c, q);
+    if (p === nuevo.localParticipant && q === "poor" && Date.now() - (cablear._avisada || 0) > 120_000) {
+      cablear._avisada = Date.now();
+      aviso("Tu internet está débil: a los demás les puede llegar cortado. Si puedes, acércate al módem o apaga tu cámara.", 8000);
+    }
+  }));
+  nuevo.on(E.AudioPlaybackStatusChanged, si(revisarSonido));
+  // LiveKit reintenta solo; aquí sólo se le cuenta a la persona. Primero
+  // intenta «reanudar» (SignalReconnecting): casi siempre sale bien en un
+  // segundo y sin cortar el video, así que la franja espera 2 s antes de salir.
+  let franja = null;
+  const reconectandoLK = (ms) => si(() => {
+    clearTimeout(franja);
+    franja = setTimeout(() => { if (nuevo === room) { estadoVideo("Se fue la señal. Reconectando el video…"); cablear._mostrada = true; } }, ms);
   });
-  room.on(E.Disconnected, () => aviso("Se cortó el video. Recarga la página para volver a entrar.", 60000));
+  nuevo.on(E.SignalReconnecting, reconectandoLK(2000));
+  nuevo.on(E.Reconnecting, reconectandoLK(0));
+  nuevo.on(E.Reconnected, si(() => {
+    clearTimeout(franja);
+    estadoVideo(null);
+    if (cablear._mostrada) aviso("Listo, el video volvió.");
+    cablear._mostrada = false;
+  }));
+  nuevo.on(E.Disconnected, () => clearTimeout(franja));
+  nuevo.on(E.Disconnected, si(alDesconectar));
+  nuevo.on(E.MediaDevicesChanged, si(() => { if ($("#dlg-aparatos").open) llenarAparatos(); }));
+}
+
+async function conectarLK() {
+  LK = await cargarLivekit();
+  const r = await conectarSala({
+    salaId, participanteId: yo.id, dirigente: soyDir(), alConfigurar: cablear,
+  });
+  room = r.room;
+  LK = r.LK;
   pintarVideos();
+  pintarBotones();
+  revisarSonido();
 
   // Minutos-participante: un latido por minuto mientras hay video.
   const latir = async () => {
     const { data } = await sb.rpc("latido", { p_sala: salaId });
     if (data?.cerrada) abortar("El dirigente terminó la clase. ¡Gracias por venir!");
   };
+  clearInterval(latido);
   latir();
   latido = setInterval(latir, 60_000);
+}
+
+// Se cayó del todo (LiveKit ya se rindió de reintentar, o lo sacaron).
+function alDesconectar(reason) {
+  const R = LK.DisconnectReason;
+  room = null;
+  clearInterval(latido);
+  limpiarVideos();
+  pintarVideos();
+  revisarSonido();
+  estadoVideo(null);
+  $("#btn-mic").dataset.estado = $("#btn-cam").dataset.estado = $("#btn-pantalla").dataset.estado = "off";
+  if (terminada || reason === R.CLIENT_INITIATED) return;
+  if (reason === R.DUPLICATE_IDENTITY) {
+    // Reconectar aquí sacaría a la otra ventana, y ésa a ésta, sin fin.
+    return sinVideo("Abriste esta clase en otra ventana o dispositivo y el video se fue para allá.", "Traer el video aquí");
+  }
+  reconectar();
+}
+
+const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function reconectar() {
+  if (reconectando || terminada) return;
+  reconectando = true;
+  estadoVideo("Se cortó el video. Volviendo a conectar…");
+  let ultimo = null;
+  for (let i = 0; i < 8 && !terminada; i++) {
+    await esperar(Math.min(2000 * 2 ** i, 30_000));
+    if (!navigator.onLine) { i--; continue; }      // sin red no gastamos intentos
+    try {
+      await conectarLK();
+      reconectando = false;
+      estadoVideo(null);
+      aviso("Listo, el video volvió.");
+      await reponerMedios();
+      return;
+    } catch (err) {
+      ultimo = err;
+      if (err.sinPlan || err.sesionCaducada) break;
+    }
+  }
+  reconectando = false;
+  estadoVideo(null);
+  if (!terminada) sinVideo(ultimo?.message || "No se pudo volver a conectar.", "Reintentar", ultimo);
+}
+
+// Lo que la persona tenía prendido vuelve a prenderse solo. La pantalla no:
+// el navegador exige que la persona la elija otra vez.
+async function reponerMedios() {
+  const puede = yo.rol !== "oyente" || yo.voz_activa;
+  if (!room || !puede) return;
+  try {
+    if (quiero.mic) await room.localParticipant.setMicrophoneEnabled(true);
+    if (quiero.cam) await room.localParticipant.setCameraEnabled(true);
+  } catch {}
+  pintarBotones();
+  if (quiero.pantalla) {
+    quiero.pantalla = false;
+    aviso("Volvió el video. Si estabas compartiendo pantalla, vuelve a darle al botón.", 8000);
+  }
+}
+
+// La clase sigue sin video (sin minutos, plan vencido, sin red). Si lo que se
+// cayó fue la sesión no hay nada que reintentar: hay que volver a entrar, y el
+// botón trae de regreso a esta misma sala.
+function sinVideo(mensaje, textoBoton, err) {
+  const boton = err?.sesionCaducada
+    ? `<br><a class="btn btn-primario" href="${rutaDeEntrada()}">Volver a entrar</a>`
+    : err?.sinPlan ? ""
+    : `<br><button class="btn btn-primario" type="button" id="btn-reintentar-video">${escapar(textoBoton || "Reintentar")}</button>`;
+  // Viendo la pizarra o las diapositivas la tarima no se ve: que se entere igual.
+  if ($("#tarima").classList.contains("oculto")) aviso(`No hay video en este momento. ${mensaje}`, 15000);
+  $("#tarima").innerHTML = `<div class="tarima-vacia">No hay video en este momento.<br><small>${escapar(mensaje)}</small>${boton}</div>`;
+  $("#btn-reintentar-video")?.addEventListener("click", async (e) => {
+    e.currentTarget.disabled = true;
+    try {
+      await conectarLK();
+      await aplicarVista();
+      await reponerMedios();
+    } catch (err2) {
+      sinVideo(err2.message, "Reintentar", err2);
+    }
+  });
+}
+
+// --- Micrófono, cámara y bocina -----------------------------------------------
+// Cada quien elige sus aparatos; se recuerda en este navegador.
+const TIPOS_APARATO = [
+  { kind: "audioinput", sel: "#ap-audioinput", nombre: "Micrófono", hablar: true },
+  { kind: "videoinput", sel: "#ap-videoinput", nombre: "Cámara", hablar: true },
+  { kind: "audiooutput", sel: "#ap-audiooutput", nombre: "Bocina", hablar: false },
+];
+
+async function llenarAparatos() {
+  const puedeHablar = yo.rol !== "oyente" || yo.voz_activa;
+  const conSalida = LK.supportsAudioOutputSelection();
+  for (const t of TIPOS_APARATO) {
+    const caja = $(t.sel).closest(".campo");
+    const mostrar = t.kind === "audiooutput" ? conSalida : puedeHablar;
+    caja.classList.toggle("oculto", !mostrar);
+    if (!mostrar) continue;
+    let lista = [];
+    // Pedir permiso sólo a quien va a hablar; al oyente no se le pide micrófono
+    // nada más para ver la lista de bocinas.
+    try { lista = await LK.Room.getLocalDevices(t.kind, t.hablar); } catch {}
+    const activo = room?.getActiveDevice(t.kind) || aparatosGuardados()[t.kind] || "default";
+    $(t.sel).innerHTML = lista.map((d, i) =>
+      `<option value="${escapar(d.deviceId)}"${d.deviceId === activo ? " selected" : ""}>${escapar(d.label || `${t.nombre} ${i + 1}`)}</option>`).join("")
+      || `<option value="">No se encontró ningún aparato</option>`;
+  }
+  $("#ap-sin-salida").classList.toggle("oculto", conSalida);
+}
+
+$("#btn-aparatos").addEventListener("click", async () => {
+  if (!room) return aviso("El video todavía se está conectando.");
+  await llenarAparatos();
+  $("#dlg-aparatos").showModal();
+});
+$("#ap-cerrar").addEventListener("click", () => $("#dlg-aparatos").close());
+for (const t of TIPOS_APARATO) {
+  $(t.sel).addEventListener("change", async (e) => {
+    const id = e.currentTarget.value;
+    if (!id || !room) return;
+    try {
+      await room.switchActiveDevice(t.kind, id);
+      guardarAparato(t.kind, id);
+    } catch (err) {
+      aviso(`No se pudo cambiar ${t.nombre.toLowerCase()}: ${err.message || err}`);
+      llenarAparatos();
+    }
+  });
 }
 
 // --- Arranque ------------------------------------------------------------------
@@ -921,12 +1205,7 @@ try {
     } catch (err) {
       console.error(err);
       // Sin video (sin minutos, plan vencido, sin red): lo demás de la clase sigue.
-      // Si lo que se cayó fue la sesión, no hay nada que reintentar: hay que
-      // volver a entrar, y el botón trae de regreso a esta misma sala.
-      const volver = err.sesionCaducada
-        ? `<br><a class="btn btn-primario" href="${rutaDeEntrada()}">Volver a entrar</a>`
-        : "";
-      $("#tarima").innerHTML = `<div class="tarima-vacia">No se pudo conectar el video.<br><small>${escapar(err.message)}</small>${volver}</div>`;
+      sinVideo(err.message, "Reintentar", err);
     }
   }
 } catch (err) {

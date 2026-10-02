@@ -363,6 +363,36 @@ LiveKit refleja el permiso técnico en caliente vía `permiso.js`.
 - **LiveKit desde CDN**: se carga `livekit-client` (cliente) por CDN. El
   SDK de servidor `livekit-server-sdk` va como dependencia en
   `package.json` porque las Netlify Functions sí corren en Node.
+- **Los cuadros de video NO se rehacen** (2026-10-01). `pintarVideos()`
+  (`sala.js`) mantiene un cuadro por participante en `cajas` y sólo le pone o
+  quita pistas; para cambiarlo de la tarima a la tira lo mueve con
+  `insertBefore`. Antes vaciaba todo y hacía `detach()`/`attach()` en cada
+  evento: con `adaptiveStream`, soltar el `<video>` le dice al servidor «nadie
+  lo ve», lo pausa y lo reanuda desde la capa baja. Se veía como parpadeo y
+  video borroso en todos cada vez que alguien entraba o se silenciaba, y un
+  corte de audio. Los `<audio>` viven en `#audios`, fuera de los cuadros.
+  Cualquier cambio a la sala que «repinte» tiene que respetar esto.
+- **Calidad y reconexión** (`livekit.js`, `livekit-client` 2.22.3): dirigente
+  captura a 720p, los demás a 540p (simulcast + dynacast: la capa alta sólo
+  viaja a quien lo ve en grande). Pantalla a 1080p con `contentHint: "detail"`;
+  desde la 2.x el SDK ya pone `maintain-resolution` a la pantalla. Si LiveKit
+  se rinde de reconectar (~48 s), `reconectar()` pide token nuevo y vuelve a
+  prender mic/cámara según `quiero`. Con `DUPLICATE_IDENTITY` (misma cuenta en
+  otra ventana) NO reintenta solo: se sacarían una a la otra sin fin.
+- **Audio bloqueado**: iPhone/iPad (y Chrome sin gesto) no dejan sonar el
+  audio; `#btn-sonido` («Activar sonido de la clase») sale con
+  `AudioPlaybackStatusChanged` y llama `room.startAudio()`.
+- **Aparatos**: botón de ajustes → micrófono, cámara y bocina; se recuerdan en
+  `localStorage cl-aparatos` y van como preferencia (no `exact`) para que un
+  aparato desconectado no rompa la entrada. La bocina sólo se aplica si sigue
+  en la lista (un id de salida inexistente sí falla).
+- **Probar la clase con dos cuentas**: servidor local que sirve el repo y
+  manda `/.netlify/functions/*` a producción + puppeteer con
+  `--use-fake-device-for-media-stream --use-fake-ui-for-media-stream`, cada
+  cuenta en su `createBrowserContext()`. Sin red: CDP
+  `Network.emulateNetworkConditions`. Sonido bloqueado:
+  `--autoplay-policy=document-user-activation-required`. Cerrar la sala al
+  final con `salir_de_sala(p_terminar => true)`.
 - **Realtime de `salas`**: la tabla no estaba en la publicación
   `supabase_realtime` y nadie veía abrir la pizarra, cambiar de diapositiva
   ni terminar la clase. Ya está (migración 2026-09-23).
