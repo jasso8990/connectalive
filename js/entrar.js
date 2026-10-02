@@ -1,4 +1,4 @@
-// Portada: entrar, registrarse o pegar un código para unirse a una clase.
+// Entrar: entrar, registrarse o pegar un código para unirse a una clase.
 
 import { entrar, registrar, currentUser } from "./auth.js";
 import { mostrarMensaje, rutaSegura } from "./util.js";
@@ -8,6 +8,12 @@ const destino = () => rutaSegura(new URLSearchParams(location.search).get("volve
 
 // Con sesión abierta no hay nada que hacer aquí.
 if (await currentUser()) location.replace(destino());
+
+// Desde la portada, «Crear cuenta» llega con ?registro=1: abre el alta directo.
+if (new URLSearchParams(location.search).has("registro")) {
+  $("#acordeon-registro").open = true;
+  $("#reg-nombre").focus();
+}
 
 // --- Login ---
 $("#form-login").addEventListener("submit", async (e) => {

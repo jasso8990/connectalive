@@ -289,7 +289,14 @@ LiveKit refleja el permiso técnico en caliente vía `permiso.js`.
 
 ## Estructura del repo
 
-- `index.html` / `js/index.js` — portada: entrar, registrarse o pegar un código.
+- `index.html` / `js/portada.js` / `css/portada.css` — **landing pública** (2026-10-01, estilo «Luz»): qué es,
+  las tres herramientas con capturas reales (`assets/portada/*.webp`), pasos, precios y la caja «¿Te pasaron un
+  código?» montada en el borde del héroe. Con sesión se va directo a `/inicio` (también al volver del correo de
+  confirmación, que aterriza en `/`); un script en `<head>` esconde la página mientras lo confirma (2 s máx.).
+  Los precios vienen escritos en el HTML y `portada.js` los corrige con `connectalive.planes`.
+  Las capturas se rehicieron con la cuenta QA: si cambia la interfaz, conviene volver a sacarlas.
+- `entrar.html` / `js/entrar.js` — login y alta (`/entrar`; `?registro=1` abre el alta, `?volver=` regresa).
+  Antes era `index.html`: todo lo que manda a iniciar sesión ya usaba `/entrar`.
 - `inicio.html` / `js/inicio.js` — **elegir**: Pizarra, Presentación o Clase;
   y "Tus clases abiertas".
 - `panel.html` / `js/panel.js` — Mi plan y equipo (uso, maestros, planes, pago).

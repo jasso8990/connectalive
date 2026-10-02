@@ -3,66 +3,232 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Connectalive — Entrar</title>
-  <link rel="stylesheet" href="/css/app.css">
+  <title>Connectalive — Pizarra, presentación remota y clases en vivo</title>
+  <meta name="description" content="Escribe en tu tableta y se proyecta en la PC, controla tu presentación desde el celular y da clases o talleres en vivo. La pizarra y la presentación son gratis.">
+  <meta property="og:title" content="Connectalive — Pizarra, presentación remota y clases en vivo">
+  <meta property="og:description" content="Escribe en tu tableta y se proyecta en la PC. Controla tu presentación desde el celular. Da clases o talleres en vivo.">
+  <meta property="og:image" content="/assets/portada/pizarra-pc.webp">
+  <!-- Con sesión guardada (o volviendo del correo de confirmación) no se pinta
+       la portada hasta saber si va directo a /inicio. -->
+  <script>
+    try {
+      if (/access_token=|type=signup/.test(location.hash) || localStorage.getItem("sb-bckgumchkzlvbgcxjpwi-auth-token")) {
+        document.documentElement.classList.add("comprobando");
+        setTimeout(function () { document.documentElement.classList.remove("comprobando"); }, 2000);
+      }
+    } catch (e) {}
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap">
+  <link rel="stylesheet" href="/css/portada.css">
   <link rel="icon" href="/assets/icono.png" type="image/png">
   <link rel="apple-touch-icon" href="/assets/icono.png">
   <link rel="manifest" href="/manifest.webmanifest">
-  <meta name="theme-color" content="#0f172a">
+  <meta name="theme-color" content="#1d4ed8">
 </head>
-<body class="pantalla-luz">
-  <main class="portada">
-    <img src="/assets/logo.png" alt="Connectalive" class="logo-portada">
-    <p class="pista" style="text-align:center; margin-top:-4px">Pizarra, presentación remota y clases o talleres en vivo.</p>
+<body>
+  <div class="luz" aria-hidden="true"></div>
 
-    <section class="tarjeta">
-      <h1>Entrar a tu cuenta</h1>
+  <header class="barra ancho">
+    <a href="/" class="marca"><img src="/assets/icono.png" alt=""><span>Connectalive</span></a>
+    <nav aria-label="Secciones">
+      <a href="#herramientas">Herramientas</a>
+      <a href="#como">Cómo funciona</a>
+      <a href="#precios">Precios</a>
+    </nav>
+    <div class="acciones">
+      <a class="btn btn-vidrio btn-chico" href="/entrar">Entrar</a>
+      <a class="btn btn-primario btn-chico" href="/entrar?registro=1">Crear cuenta gratis</a>
+    </div>
+  </header>
 
-      <form id="form-login" class="stack">
-        <label class="campo">
-          <span>Correo</span>
-          <input id="email" type="email" autocomplete="username" required placeholder="tucorreo@ejemplo.com">
-        </label>
-        <label class="campo">
-          <span>Contraseña</span>
-          <input id="password" type="password" autocomplete="current-password" required placeholder="Tu contraseña">
-        </label>
-        <button class="btn btn-primario" type="submit" id="btn-entrar">Entrar</button>
-        <p id="mensaje" class="mensaje oculto"></p>
-      </form>
-
-      <details class="acordeón">
-        <summary>¿Todavía no tienes cuenta?</summary>
-        <form id="form-registro" class="stack" style="margin-top:12px">
-          <label class="campo">
-            <span>Nombre para mostrar</span>
-            <input id="reg-nombre" type="text" autocomplete="name" required placeholder="Cómo te llaman">
-          </label>
-          <label class="campo">
-            <span>Correo</span>
-            <input id="reg-email" type="email" autocomplete="email" required>
-          </label>
-          <label class="campo">
-            <span>Contraseña</span>
-            <input id="reg-password" type="password" autocomplete="new-password" minlength="6" required>
-          </label>
-          <button class="btn btn-secundario" type="submit" id="btn-registro">Crear cuenta</button>
-          <p id="mensaje-reg" class="mensaje oculto"></p>
-        </form>
-      </details>
+  <main>
+    <section class="heroe ancho">
+      <div>
+        <span class="antetitulo">Para maestros, instructores y presentadores</span>
+        <h1>Tu pizarra, tus diapositivas y tu clase, <em>en vivo</em>.</h1>
+        <p class="bajada">Escribe en la tableta y se ve en la PC del salón. Pasa tus diapositivas desde el celular. Y cuando te toque dar la clase a distancia, todo está en el mismo lugar.</p>
+        <div class="botones">
+          <a class="btn btn-claro" href="/entrar?registro=1">Empieza gratis</a>
+          <a class="btn btn-vidrio" href="#herramientas">Ver cómo funciona</a>
+        </div>
+        <p class="nota">Pizarra y presentación remota gratis, sin tarjeta. ¿Te pasaron un código? <a href="#t-codigo">Entra aquí</a>.</p>
+      </div>
+      <div class="escena" aria-hidden="true">
+        <span class="chip-vivo"><span class="punto"></span>Se ve al instante en la PC</span>
+        <div class="pc"><img src="/assets/portada/pizarra-pc.webp" alt="" width="1440" height="900" fetchpriority="high"></div>
+        <div class="tableta"><img src="/assets/portada/pizarra-tableta.webp" alt="" width="1180" height="820"></div>
+      </div>
     </section>
 
-    <section class="tarjeta tarjeta-secundaria">
-      <h2>¿Ya te pasaron un enlace o código?</h2>
-      <form id="form-codigo" class="linea">
-        <input id="codigo" type="text" required placeholder="ABCD1234 o el enlace" autocomplete="off"
-               maxlength="120" inputmode="latin">
-        <button class="btn btn-primario" type="submit">Entrar a la sala</button>
+    <!-- Quien ya trae un código no tiene que leer la portada: entra desde aquí. -->
+    <section class="codigo-flotante" aria-labelledby="t-codigo">
+      <h2 id="t-codigo">¿Te pasaron un código o un enlace?</h2>
+      <p>Pégalo aquí para entrar a la clase. Si todavía no tienes cuenta, la creas en un minuto y te lleva directo.</p>
+      <form id="form-codigo">
+        <input id="codigo" type="text" required placeholder="ABCD1234 o el enlace" autocomplete="off" maxlength="120" aria-label="Código o enlace de la clase">
+        <button class="btn btn-primario" type="submit">Entrar a la clase</button>
       </form>
-      <p class="pista">Necesitas una cuenta para entrar (es gratis y rápido). Si te pasaron el enlace de alumnos, entras directo con voz.</p>
+    </section>
+
+    <section class="seccion ancho" id="herramientas">
+      <div class="cabeza centro revelar">
+        <span class="antetitulo">Tres herramientas en una</span>
+        <h2>Todo lo que usas para enseñar, conectado</h2>
+        <p>Abres Connectalive, eliges qué vas a usar hoy y compartes un código. Nada que instalar en la PC del salón.</p>
+      </div>
+
+      <article class="herramienta revelar">
+        <div class="texto">
+          <span class="etiqueta gratis">Gratis</span>
+          <h3>Pizarra en vivo</h3>
+          <p>Escribe con el dedo o el lápiz en tu tableta o celular, y aparece en la pantalla grande en tiempo real.</p>
+          <ul class="puntos">
+            <li>Lápiz, marcador, recuadros, círculos y texto en colores.</li>
+            <li>Para proyectar, en la PC sólo se escribe un código de 6 caracteres.</li>
+            <li>Camina por el salón mientras explicas: no estás atado al pizarrón.</li>
+          </ul>
+        </div>
+        <div class="capturas">
+          <div class="grande"><img src="/assets/portada/pizarra-pc.webp" alt="La pizarra proyectada en la PC con el teorema de Pitágoras" width="1440" height="900" loading="lazy"></div>
+          <div class="chica"><img src="/assets/portada/pizarra-tableta.webp" alt="La misma pizarra en la tableta, con las herramientas de dibujo" width="1180" height="820" loading="lazy"></div>
+        </div>
+      </article>
+
+      <article class="herramienta invertida revelar">
+        <div class="texto">
+          <span class="etiqueta gratis">Gratis</span>
+          <h3>Presentación remota</h3>
+          <p>Abre tu PDF en la PC y manéjalo desde el celular, como un control remoto que además te deja ver lo que viene.</p>
+          <ul class="puntos">
+            <li>Mira la diapositiva anterior o la siguiente en privado, sin que la vea el público.</li>
+            <li>La pantalla sólo cambia cuando tocas «Mostrar en pantalla».</li>
+            <li>Subraya y haz zoom desde el celular para señalar lo importante.</li>
+          </ul>
+        </div>
+        <div class="capturas">
+          <div class="grande"><img src="/assets/portada/presentacion-pc.webp" alt="Una presentación en pantalla completa en la PC" width="1440" height="900" loading="lazy"></div>
+          <div class="chica cel"><img src="/assets/portada/presentacion-cel.webp" alt="El celular controlando la presentación y viendo la siguiente diapositiva" width="780" height="1688" loading="lazy"></div>
+        </div>
+      </article>
+
+      <article class="herramienta revelar">
+        <div class="texto">
+          <span class="etiqueta plan">Con plan · unirse es gratis</span>
+          <h3>Clase o taller en vivo</h3>
+          <p>Videollamada pensada para enseñar: tú conduces, y cada quien entra con el papel que le toca.</p>
+          <ul class="puntos">
+            <li><strong>Alumnos</strong> que hablan y comparten, y <strong>oyentes</strong> que ven, escuchan y piden la palabra.</li>
+            <li>Pizarra y diapositivas dentro de la misma clase.</li>
+            <li>Lo que se comparte te llega primero a ti, y tú decides a quién le llega.</li>
+          </ul>
+        </div>
+        <div class="capturas">
+          <div class="grande"><img src="/assets/portada/clase.webp" alt="Una clase en vivo con diapositivas, el video del dirigente y la lista de participantes" width="1440" height="760" loading="lazy"></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="seccion ancho" id="como">
+      <div class="cabeza centro revelar">
+        <span class="antetitulo">Cómo funciona</span>
+        <h2>De cero a proyectando en un minuto</h2>
+      </div>
+      <div class="pasos">
+        <div class="paso revelar">
+          <span class="num">1</span>
+          <h3>Crea tu cuenta</h3>
+          <p>Sólo nombre, correo y contraseña. Es gratis y no pide tarjeta.</p>
+        </div>
+        <div class="paso revelar">
+          <span class="num">2</span>
+          <h3>Elige qué vas a usar</h3>
+          <p>Pizarra, presentación o clase en vivo. Cada una te da un código.</p>
+        </div>
+        <div class="paso revelar">
+          <span class="num">3</span>
+          <h3>Comparte el código</h3>
+          <p>Escríbelo en la PC o mándalo a tus alumnos, y ya están conectados.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="seccion ancho" id="precios">
+      <div class="cabeza centro revelar">
+        <span class="antetitulo">Precios</span>
+        <h2>Empieza gratis. Paga sólo si das clases en vivo.</h2>
+        <p>Unirte a la clase de alguien más siempre es gratis. Precios en dólares, por mes.</p>
+      </div>
+      <div class="precios" id="lista-precios">
+        <div class="precio revelar">
+          <h3>Gratis</h3>
+          <div class="monto">$0</div>
+          <p class="desc">Para el salón de todos los días.</p>
+          <ul>
+            <li>Pizarra en vivo</li>
+            <li>Presentación remota</li>
+            <li>Unirte a clases en vivo</li>
+          </ul>
+          <a class="btn btn-vidrio" href="/entrar?registro=1">Crear cuenta</a>
+        </div>
+        <div class="precio revelar" data-plan="clase">
+          <h3 data-nombre>Básico</h3>
+          <div class="monto"><span data-precio>$4.99</span> <small>/mes</small></div>
+          <p class="desc" data-desc>Una sola persona da las clases o talleres.</p>
+          <ul>
+            <li>Todo lo gratis</li>
+            <li>Dar clases en vivo</li>
+            <li data-minutos>7,500 minutos-participante al mes</li>
+          </ul>
+          <a class="btn btn-vidrio" href="/entrar?registro=1&volver=%2Fpanel">Elegir Básico</a>
+        </div>
+        <div class="precio destacado revelar" data-plan="grupo">
+          <span class="insignia">Para equipos</span>
+          <h3 data-nombre>Premium</h3>
+          <div class="monto"><span data-precio>$19.99</span> <small>/mes</small></div>
+          <p class="desc" data-desc>Tú y hasta 4 maestros o instructores más.</p>
+          <ul>
+            <li>Todo lo gratis</li>
+            <li>Dar clases en vivo</li>
+            <li data-minutos>30,000 minutos-participante al mes</li>
+          </ul>
+          <a class="btn btn-claro" href="/entrar?registro=1&volver=%2Fpanel">Elegir Premium</a>
+        </div>
+        <div class="precio revelar" data-plan="escuela">
+          <h3 data-nombre>Institucional</h3>
+          <div class="monto"><span data-precio>$49.99</span> <small>/mes</small></div>
+          <p class="desc" data-desc>Para escuelas y empresas: tú y hasta 29 maestros, instructores o supervisores.</p>
+          <ul>
+            <li>Todo lo gratis</li>
+            <li>Dar clases en vivo</li>
+            <li data-minutos>75,000 minutos-participante al mes</li>
+          </ul>
+          <a class="btn btn-vidrio" href="/entrar?registro=1&volver=%2Fpanel">Elegir Institucional</a>
+        </div>
+      </div>
+      <p class="aclaracion">Un minuto-participante es un minuto de una persona conectada: una clase de 1 hora con 25 personas usa 1,500.</p>
+    </section>
+
+    <section class="cierre ancho revelar">
+      <h2>Tu próxima clase puede empezar hoy</h2>
+      <p>Crea tu cuenta gratis y prueba la pizarra con tu propia tableta en menos de un minuto.</p>
+      <div class="botones">
+        <a class="btn btn-claro" href="/entrar?registro=1">Crear cuenta gratis</a>
+        <a class="btn btn-vidrio" href="/entrar">Ya tengo cuenta</a>
+      </div>
     </section>
   </main>
 
-  <script type="module" src="/js/index.js"></script>
+  <footer class="pie ancho">
+    Connectalive by SmrtApp · <a href="/entrar">Entrar</a>
+  </footer>
+
+  <!-- Celular: un solo botón principal, siempre a la mano -->
+  <div class="barra-cel">
+    <a class="btn btn-primario" href="/entrar?registro=1">Crear cuenta gratis</a>
+  </div>
+
+  <script type="module" src="/js/portada.js"></script>
 </body>
 </html>

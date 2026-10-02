@@ -11,7 +11,7 @@
 # --- Rutas limpias ---
 [[redirects]]
   from = "/entrar"
-  to = "/index.html"
+  to = "/entrar.html"
   status = 200
 
 [[redirects]]
