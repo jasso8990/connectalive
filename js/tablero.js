@@ -80,9 +80,15 @@ export function conectarTablero(codigo, eventos = {}) {
     unido = false;
     const este = sb.channel(`cl-tablero-${codigo}`, { config: { broadcast: { self: false } } });
     canal = este;
-    for (const ev of ["trazo", "trazos", "vista", "pagina", "cerrado", "hola", "suelto"]) {
+    for (const ev of ["trazo", "trazos", "vista", "pagina", "cerrado", "hola"]) {
       este.on("broadcast", { event: ev }, ({ payload }) => eventos[ev]?.(payload));
     }
+    // Alguien soltó el control. Si era el mío (la PC lo liberó), el latido
+    // lo confirma y avisa con `controlPerdido`.
+    este.on("broadcast", { event: "suelto" }, async ({ payload }) => {
+      if (token) await latir();
+      eventos.suelto?.(payload);
+    });
     este.subscribe((estado) => {
       if (este !== canal) return;
       const ok = estado === "SUBSCRIBED";

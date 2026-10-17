@@ -118,14 +118,11 @@ async function iniciar() {
     trazos: ({ lista }) => lienzo.setTrazos(lista),
     vista: (v) => { vistaPantalla = v; if (privada == null) lienzo.setVista(v); pintarZoom(); },
     hola: () => { if (!esControl) hayCelular(true); },
-    // Alguien soltó el control: la PC vuelve a enseñar el código, el celular
-    // que esperaba entra solo y el que controlaba (si lo liberó la PC) se entera.
-    suelto: async () => {
+    // Alguien soltó el control: la PC vuelve a enseñar el código y el celular
+    // que esperaba entra solo. (El que lo perdió se entera por controlPerdido.)
+    suelto: () => {
       if (!esControl) return hayCelular(false);
-      if (esperando) return intentarControl();
-      if (sync.tengoControl) {
-        try { await sync.tomarControl(false); } catch { sinControl(); }
-      }
+      if (esperando) intentarControl();
     },
     cerrado: () => { olvidarUltima(codigo); aviso("La presentación se cerró.", true); estado("Cerrada", false); },
     conexion: (ok) => {
