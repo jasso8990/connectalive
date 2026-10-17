@@ -348,11 +348,30 @@ LiveKit refleja el permiso técnico en caliente vía `permiso.js`.
   guardar / cerrar`.
 - **Controlar** (escribir o mover diapositivas) sólo lo hace la **cuenta que
   abrió la sesión** — el código se proyecta frente a todos. Un dispositivo a
-  la vez; si deja de latir 2 min, otro lo toma (o se fuerza con confirmación).
+  la vez, y **el control es suyo hasta que lo suelte** (desde 2026-10-17):
+  - En la **presentación** nadie lo quita forzando. Otro celular que entra
+    queda en «Esperando» y entra solo cuando el primero toca «Dejar el
+    control» o la PC toca «Liberar control» (`tablero_soltar_control`; la
+    cuenta dueña sin token suelta el de cualquiera).
+  - En la **pizarra** sigue «Escribir desde aquí» (forzar).
+  - Sólo vence tras **3 horas** sin latido. Antes eran 2 min y se caía con
+    la pantalla del celular apagada: Android congela la pestaña y deja de
+    latir.
+  - El token vive en `localStorage cl_control_<código>`: si la app se cierra,
+    al volver recupera el mismo control. Inicio ofrece «¿Seguir donde te
+    quedaste?» (`localStorage cl-ultima`, 24 h); «No, gracias» suelta el
+    control.
+  - Pantalla despierta con Wake Lock (`mantenerDespierta()` en `util.js`) en
+    la PC y en el celular. `tablero.js` reabre el canal de Realtime si murió
+    y late de inmediato al volver al frente.
   Ver con el código lo puede cualquier cuenta.
 - PDFs libres en `connectalive/libres/<dueño>/<código>/…`. Sólo los lee quien
   ya abrió ese código (`tablero_vistas`), así listar el bucket no revela nada.
-  Al crear un tablero se borran los propios de más de 2 días.
+  La política de Storage pregunta con `connectalive.vi_tablero()` (SECURITY
+  DEFINER): un `exists` directo sobre `tablero_vistas` (RLS sin políticas) no
+  veía nada y el celular de otra cuenta recibía «Object not found».
+  Al crear un tablero se borran los propios de más de 2 días; el latido
+  también cuenta como uso.
 
 ## Trampas conocidas
 

@@ -5,7 +5,7 @@
 import { sb } from "./supabase.js";
 import { requireUser, nombreDe, salir } from "./auth.js";
 import { resumenDelPlan } from "./plan.js";
-import { crearTablero, limpiarCodigo } from "./tablero.js";
+import { crearTablero, limpiarCodigo, leerTablero, conectarTablero, leerUltima, olvidarUltima } from "./tablero.js";
 import { escapar } from "./util.js";
 
 const $ = (s) => document.querySelector(s);
@@ -13,6 +13,38 @@ const user = await requireUser();
 $("#nombre").textContent = nombreDe(user);
 
 $("#btn-salir").addEventListener("click", async () => { await salir(); location.replace("/"); });
+
+// --- ¿Seguir donde te quedaste? ---------------------------------------------
+// Si la app se cerró (o el celular la mató) a media presentación o pizarra,
+// se pregunta si se vuelve ahí, con el mismo control que se tenía.
+{
+  const u = leerUltima();
+  if (u) {
+    leerTablero(u.codigo).then((t) => {
+      if (t.tipo !== u.tipo) return olvidarUltima(u.codigo);
+      const que = {
+        control: `Estabas controlando «${u.nombre}» (código ${u.codigo}), en la diapositiva ${t.pagina} de ${t.paginas || "?"}.`,
+        proyector: `Estabas proyectando «${u.nombre}» (código ${u.codigo}).`,
+        escribir: `Estabas escribiendo en la pizarra ${u.codigo}.`,
+        ver: `Estabas viendo la pizarra ${u.codigo}.`,
+      }[u.modo] || `Código ${u.codigo}.`;
+      $("#seguir-texto").textContent = que;
+      $("#seguir-ir").href = u.url;
+      $("#seguir").classList.remove("oculto");
+    }).catch((err) => { if (/no existe/.test(err.message)) olvidarUltima(u.codigo); });
+  }
+  // «No, gracias» con el control en la mano lo suelta: si no, ningún otro
+  // celular podría entrar hasta liberarlo desde la PC.
+  $("#seguir-no").addEventListener("click", async () => {
+    $("#seguir").classList.add("oculto");
+    olvidarUltima();
+    if (u?.modo === "control" || u?.modo === "escribir") {
+      const s = conectarTablero(u.codigo);
+      if (s.tengoControl) await s.soltarControl().catch(() => {});
+      s.desconectar();
+    }
+  });
+}
 
 // --- Pizarra ---------------------------------------------------------------
 $("#btn-pizarra-escribir").addEventListener("click", async (e) => {

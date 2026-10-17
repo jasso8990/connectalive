@@ -9,9 +9,9 @@
 import { requireUser } from "./auth.js";
 import { sb } from "./supabase.js";
 import { crearLienzo, conectarBarra } from "./lienzo.js";
-import { crearTablero, leerTablero, conectarTablero, limpiarCodigo } from "./tablero.js";
+import { crearTablero, leerTablero, conectarTablero, limpiarCodigo, recordarUltima, olvidarUltima } from "./tablero.js";
 import { crearVisor, contarPaginas } from "./diapositivas.js";
-import { pantallaCompleta, mostrarMensaje } from "./util.js";
+import { pantallaCompleta, mostrarMensaje, mantenerDespierta } from "./util.js";
 import { STORAGE_BUCKET } from "./config.js";
 
 const $ = (s) => document.querySelector(s);
@@ -31,6 +31,8 @@ let privada = null;                 // diapositiva que el control mira sin proye
 let vistaPantalla = { zoom: 100, x: 0, y: 0 };
 let ultimoFueTrazo = false;
 let pestana = "diapos";             // pestaña del control: diapos | subrayar | zoom
+let esperando = false;              // otro celular tiene el control
+let controlListo = false;           // ya se armaron los botones del control
 
 function estado(texto, ok) {
   $("#estado-texto").textContent = texto;
@@ -95,6 +97,7 @@ async function iniciar() {
   try {
     datos = await leerTablero(codigo);
   } catch (err) {
+    if (/no existe/.test(err.message)) olvidarUltima(codigo);
     return fallo("No encontramos esa presentación", err.message);
   }
   if (datos.tipo !== "presentacion") return fallo("Ese código es de una pizarra", "Ábrelo desde Pizarra → Proyectar.");
@@ -114,14 +117,29 @@ async function iniciar() {
     trazo: ({ t }) => lienzo.recibirTrazo(t),
     trazos: ({ lista }) => lienzo.setTrazos(lista),
     vista: (v) => { vistaPantalla = v; if (privada == null) lienzo.setVista(v); pintarZoom(); },
-    hola: () => $("#codigo-proyector").classList.add("oculto"),
-    cerrado: () => { aviso("La presentación se cerró.", true); estado("Cerrada", false); },
-    conexion: (ok) => estado(ok ? (esControl ? "Controlando" : "En vivo") : "Reconectando…", ok),
+    hola: () => { if (!esControl) hayCelular(true); },
+    // Alguien soltó el control: la PC vuelve a enseñar el código, el celular
+    // que esperaba entra solo y el que controlaba (si lo liberó la PC) se entera.
+    suelto: async () => {
+      if (!esControl) return hayCelular(false);
+      if (esperando) return intentarControl();
+      if (sync.tengoControl) {
+        try { await sync.tomarControl(false); } catch { sinControl(); }
+      }
+    },
+    cerrado: () => { olvidarUltima(codigo); aviso("La presentación se cerró.", true); estado("Cerrada", false); },
+    conexion: (ok) => {
+      if (!ok) return estado("Reconectando…", false);
+      if (!esControl) return estado("En vivo", true);
+      if (sync?.tengoControl) estado("Controlando", true);
+    },
     volver: releer,
-    controlPerdido: () => { aviso("Otro dispositivo tomó el control."); estado("Sin control", false); },
+    controlPerdido: () => sinControl(),
     error: (e) => {
-      if (String(e.message).startsWith("OCUPADO")) { aviso("La presentación se está controlando desde un celular."); releer(); }
-      else aviso(e.message || "No se pudo guardar");
+      if (String(e.message).startsWith("OCUPADO")) {
+        if (esControl) sinControl();
+        else { aviso("La presentación se está controlando desde un celular."); releer(); }
+      } else aviso(e.message || "No se pudo guardar");
     },
   });
 
@@ -161,6 +179,14 @@ async function iniciar() {
   }
   await visor.ir(pagina);
   pintarPagina();
+
+  // Que la pantalla no se apague, y si la app se cierra, Inicio ofrece volver.
+  mantenerDespierta();
+  recordarUltima({
+    tipo: "presentacion", codigo, nombre: datos.pdf_nombre || "Presentación",
+    modo: esControl ? "control" : "proyector",
+    url: `/presentacion?c=${codigo}${esControl ? "&modo=control" : ""}`,
+  });
 
   if (esControl) await arrancarControl();
   else arrancarProyector();
@@ -239,8 +265,19 @@ function arrancarProyector() {
   estado("En vivo", true);
   $("#btn-completa").classList.remove("oculto");
   $("#codigo-grande").textContent = codigo;
-  if (!datos.controlado) $("#codigo-proyector").classList.remove("oculto");
+  hayCelular(datos.controlado);
   $("#codigo-proyector").addEventListener("click", () => $("#codigo-proyector").classList.add("oculto"));
+
+  // Si el celular que controla se perdió o se quedó sin batería, desde aquí
+  // se suelta para que entre otro.
+  $("#btn-liberar").addEventListener("click", async () => {
+    if (!confirm("¿Liberar el control? El celular que controla la presentación deja de hacerlo y otro podrá entrar con el código.")) return;
+    try {
+      await sync.soltarControl();
+      hayCelular(false);
+      aviso("Control liberado. Entra desde el otro celular con el código.");
+    } catch (err) { aviso(err.message || "No se pudo liberar el control"); }
+  });
 
   $("#btn-completa").addEventListener("click", () => pantallaCompleta($("#caja")));
   $("#caja").addEventListener("dblclick", () => { if (document.fullscreenElement) document.exitFullscreen(); });
@@ -255,7 +292,50 @@ function arrancarProyector() {
   });
 }
 
+function hayCelular(si) {
+  $("#codigo-proyector").classList.toggle("oculto", !!si);
+  $("#btn-liberar").classList.toggle("oculto", !si || !datos.soy_dueno);
+}
+
 // --- Control (celular) -----------------------------------------------------
+
+// Un solo celular controla. Si otro ya lo tiene, éste espera (sin poder
+// quitárselo) y entra solo en cuanto el otro lo suelte.
+async function intentarControl() {
+  try {
+    await sync.tomarControl(false);
+  } catch (err) {
+    if (!String(err.message).startsWith("OCUPADO")) { fallo("No se pudo conectar el control", err.message); return false; }
+    esperando = true;
+    estado("Esperando", false);
+    $("#control").classList.add("oculto");
+    lienzo.setEditable(false);
+    aviso("Otro celular está controlando esta presentación. En cuanto deje el control (o lo liberes desde la PC), entras aquí.", true);
+    return false;
+  }
+  esperando = false;
+  $("#aviso").classList.add("oculto");
+  sync.hola();
+  estado("Controlando", true);
+  $("#control").classList.remove("oculto");
+  if (controlListo) aplicarPestana();
+  return true;
+}
+
+// Se perdió el control (lo liberó la PC, o pasaron horas sin señal y otro
+// entró). No se recupera solo: puede que lo tenga otro a propósito.
+function sinControl() {
+  if (esperando) return;
+  estado("Sin control", false);
+  $("#control").classList.add("oculto");
+  lienzo.setEditable(false);
+  const n = $("#aviso");
+  n.innerHTML = "Este celular ya no controla la presentación. <button type=\"button\" class=\"btn btn-primario btn-chico\" id=\"btn-recuperar\">Volver a controlar</button>";
+  n.classList.remove("oculto");
+  clearTimeout(aviso._t);
+  $("#btn-recuperar").addEventListener("click", intentarControl);
+}
+
 function aplicarPestana() {
   $$(".control-pestanas button").forEach((b) => b.classList.toggle("activo", b.dataset.pestana === pestana));
   $$(".control-panel").forEach((p) => p.classList.toggle("oculto", p.dataset.panel !== pestana));
@@ -290,18 +370,8 @@ async function arrancarControl() {
     return fallo("Esta presentación es de otra cuenta",
       "Para controlarla, entra en tu celular con la misma cuenta con la que se abrió en la PC.");
   }
-  try {
-    await sync.tomarControl(false);
-  } catch (err) {
-    if (!String(err.message).startsWith("OCUPADO")) return fallo("No se pudo conectar el control", err.message);
-    if (!confirm("Esta presentación ya se controla desde otro dispositivo. ¿Controlarla desde aquí?")) {
-      return fallo("La presentación ya tiene control", "Ciérrala en el otro dispositivo o vuelve a intentar.");
-    }
-    await sync.tomarControl(true);
-  }
-  sync.hola();
-  estado("Controlando", true);
-  $("#control").classList.remove("oculto");
+  const ok = await intentarControl();
+  if (!ok && !esperando) return;
   // Arranca en marcador amarillo: lo normal aquí es resaltar una frase del
   // PDF, no rayar encima.
   lienzo.setHerramienta("marcador");
@@ -312,7 +382,7 @@ async function arrancarControl() {
   $("#mini-ant").addEventListener("click", () => mirarPrivada(vistaActual() - 1));
   $("#mini-sig").addEventListener("click", () => mirarPrivada(vistaActual() + 1));
 
-  $(".control-pestanas button").forEach((b) => b.addEventListener("click", () => {
+  $$(".control-pestanas button").forEach((b) => b.addEventListener("click", () => {
     pestana = b.dataset.pestana;
     if (privada != null && pestana !== "diapos") salirPrivada();
     aplicarPestana();
@@ -330,6 +400,18 @@ async function arrancarControl() {
     lienzo.setVista({ zoom: vistaPantalla.zoom, x: vistaPantalla.x + dx, y: vistaPantalla.y + dy }, true);
   }));
   $("#btn-z-centrar").addEventListener("click", () => lienzo.setVista({ zoom: 100, x: 0, y: 0 }, true));
+
+  $("#btn-soltar").addEventListener("click", async () => {
+    if (!confirm("¿Dejar el control? La presentación sigue en la PC y otro celular podrá controlarla con el código.")) return;
+    try {
+      await sync.soltarControl();
+      olvidarUltima(codigo);
+      location.replace("/inicio");
+    } catch (err) { aviso(err.message || "No se pudo dejar el control"); }
+  });
+  controlListo = true;
+  aplicarPestana();
+  if (esperando) $("#control").classList.add("oculto");
 }
 
 // --- Cerrar ----------------------------------------------------------------
@@ -338,6 +420,7 @@ $("#btn-cerrar").addEventListener("click", async () => {
   await sync?.cerrar();
   if (datos?.pdf_path) await sb.storage.from(STORAGE_BUCKET).remove([datos.pdf_path]).catch(() => {});
   await sb.rpc("tablero_cerrar", { p_codigo: codigo });
+  olvidarUltima(codigo);
   location.replace("/inicio");
 });
 

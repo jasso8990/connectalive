@@ -507,6 +507,15 @@ dialog .acciones button.btn-primario { background: var(--primario); color: #fff;
 .control-pestanas button { flex: 1; border: 0; background: transparent; padding: 9px; border-radius: 8px; font: inherit; font-weight: 600; color: var(--texto-suave); cursor: pointer; }
 .control-pestanas button.activo { background: #fff; color: var(--primario); box-shadow: 0 1px 3px rgba(15,23,42,.12); }
 .control-botones { display: flex; gap: 10px; }
+/* Soltar el control para que entre otro celular: discreto, abajo. */
+.control-soltar { align-self: center; border: 0; background: transparent; color: var(--texto-suave);
+  font: inherit; font-size: 13px; text-decoration: underline; padding: 4px 8px; cursor: pointer; }
+
+/* Inicio: «¿Seguir donde te quedaste?» */
+.seguir { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-color: #bfdbfe; background: #eff6ff; }
+.seguir > div { flex: 1 1 200px; min-width: 0; }
+.seguir h2 { margin: 0 0 2px; font-size: 16px; }
+.seguir .pista { margin: 0; overflow-wrap: anywhere; }
 
 /* La anterior y la siguiente, en miniatura, en lugar de flechas. El borde
    verde marca la que está viendo la gente. */

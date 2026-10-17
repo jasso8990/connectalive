@@ -8,8 +8,8 @@
 
 import { requireUser } from "./auth.js";
 import { crearLienzo, conectarBarra, ajustarMarco } from "./lienzo.js";
-import { leerTablero, conectarTablero, limpiarCodigo } from "./tablero.js";
-import { copiar, pantallaCompleta } from "./util.js";
+import { leerTablero, conectarTablero, limpiarCodigo, recordarUltima, olvidarUltima } from "./tablero.js";
+import { copiar, pantallaCompleta, mantenerDespierta } from "./util.js";
 import { sb } from "./supabase.js";
 
 const $ = (s) => document.querySelector(s);
@@ -47,7 +47,7 @@ const sync = conectarTablero(codigo, {
   trazo: ({ t }) => lienzo.recibirTrazo(t),
   trazos: ({ lista }) => lienzo.setTrazos(lista),
   vista: (v) => lienzo.setVista(v),
-  cerrado: () => aviso("Quien abrió esta pizarra la cerró.", true),
+  cerrado: () => { olvidarUltima(codigo); aviso("Quien abrió esta pizarra la cerró.", true); },
   conexion: (ok) => estado(ok ? "En vivo" : "Reconectando…", ok),
   volver: () => { if (!escribiendo) recargar(); },
   controlPerdido: () => { modoEscribir(false); aviso("Otra pantalla tomó el control de la pizarra."); },
@@ -106,6 +106,7 @@ async function tomar(forzar) {
 try {
   await recargar();
 } catch (err) {
+  if (/no existe/.test(err.message)) olvidarUltima(codigo);
   document.querySelector(".herr-cuerpo").innerHTML =
     `<div class="tarjeta centro-pantalla"><h1>No encontramos esa pizarra</h1><p class="pista">${err.message}</p><a class="btn btn-primario" href="/inicio">Volver al inicio</a></div>`;
   throw err;
@@ -118,6 +119,14 @@ if (datos.soy_dueno) {
 if (quiereEscribir && datos.soy_dueno) await tomar(false);
 else modoEscribir(false);
 if (!escribiendo) estado("Viendo", true);
+
+// Que la pantalla no se apague, y si la app se cierra, Inicio ofrece volver.
+mantenerDespierta();
+recordarUltima({
+  tipo: "pizarra", codigo, nombre: "Pizarra",
+  modo: escribiendo ? "escribir" : "ver",
+  url: `/pizarra?c=${codigo}${escribiendo ? "&modo=escribir" : ""}`,
+});
 
 // --- Botones de la barra superior -----------------------------------------
 $("#btn-tomar").addEventListener("click", () => tomar(false));
@@ -138,6 +147,7 @@ $("#btn-cerrar").addEventListener("click", async () => {
   if (!confirm("¿Cerrar la pizarra? Lo escrito se borra y la otra pantalla deja de verla.")) return;
   await sync.cerrar();
   await sb.rpc("tablero_cerrar", { p_codigo: codigo });
+  olvidarUltima(codigo);
   location.replace("/inicio");
 });
 
