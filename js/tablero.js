@@ -80,15 +80,17 @@ export function conectarTablero(codigo, eventos = {}) {
     unido = false;
     const este = sb.channel(`cl-tablero-${codigo}`, { config: { broadcast: { self: false } } });
     canal = este;
-    for (const ev of ["trazo", "trazos", "vista", "pagina", "cerrado", "hola"]) {
+    for (const ev of ["trazo", "trazos", "vista", "pagina", "cerrado", "hola", "pide"]) {
       este.on("broadcast", { event: ev }, ({ payload }) => eventos[ev]?.(payload));
     }
-    // Alguien soltó el control. Si era el mío (la PC lo liberó), el latido
-    // lo confirma y avisa con `controlPerdido`.
-    este.on("broadcast", { event: "suelto" }, async ({ payload }) => {
-      if (token) await latir();
-      eventos.suelto?.(payload);
-    });
+    // Alguien soltó el control (o la PC se lo dio a otra cuenta). Si era el
+    // mío, el latido lo confirma y avisa con `controlPerdido`.
+    for (const ev of ["suelto", "respuesta"]) {
+      este.on("broadcast", { event: ev }, async ({ payload }) => {
+        if (token) await latir();
+        eventos[ev]?.(payload);
+      });
+    }
     este.subscribe((estado) => {
       if (este !== canal) return;
       const ok = estado === "SUBSCRIBED";
@@ -187,6 +189,19 @@ export function conectarTablero(codigo, eventos = {}) {
       token = null;
       guardarToken(codigo, null);
       enviar("suelto", {});
+    },
+    // Otra cuenta pide el control; la PC dueña lo ve y decide.
+    async pedirControl() {
+      const { error } = await sb.rpc("tablero_pedir_control", { p_codigo: codigo });
+      if (error) throw error;
+      enviar("pide", {});
+    },
+    async responderPedido(usuario, aceptar) {
+      const { error } = await sb.rpc("tablero_responder_pedido", {
+        p_codigo: codigo, p_user: usuario, p_aceptar: aceptar,
+      });
+      if (error) throw error;
+      enviar("respuesta", { para: usuario, ok: aceptar });
     },
     trazo(t, terminado) { enviar("trazo", { t, fin: terminado }); },
     trazos(lista) { enviar("trazos", { lista }); guardar({ p_trazos: lista }); },

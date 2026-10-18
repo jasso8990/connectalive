@@ -33,6 +33,8 @@ let ultimoFueTrazo = false;
 let pestana = "diapos";             // pestaña del control: diapos | subrayar | zoom
 let esperando = false;              // otro celular tiene el control
 let controlListo = false;           // ya se armaron los botones del control
+let pedi = false;                   // (otra cuenta) ya le pedí el control a la PC
+let intentando = null;              // tomarControl en curso (no pedirlo dos veces)
 
 function estado(texto, ok) {
   $("#estado-texto").textContent = texto;
@@ -124,6 +126,21 @@ async function iniciar() {
       if (!esControl) return hayCelular(false);
       if (esperando) intentarControl();
     },
+    // Un celular de otra cuenta pide el control: sólo la PC dueña decide.
+    // Quién lo pide se lee de la base, no del mensaje.
+    pide: async () => {
+      if (esControl || !datos.soy_dueno) return;
+      try { mostrarPedido((await leerTablero(codigo)).pedido); } catch {}
+    },
+    // La PC respondió a un pedido. Si me lo dio, entro; el que tenía el
+    // control se entera por controlPerdido.
+    respuesta: ({ para, ok }) => {
+      if (!esControl) return ok && hayCelular(false);
+      if (para !== user.id) { if (esperando) intentarControl(); return; }
+      pedi = false;
+      if (ok) intentarControl();
+      else { esperando = true; pedirUI("La PC no aceptó tu pedido."); }
+    },
     cerrado: () => { olvidarUltima(codigo); aviso("La presentación se cerró.", true); estado("Cerrada", false); },
     conexion: (ok) => {
       if (!ok) return estado("Reconectando…", false);
@@ -196,6 +213,7 @@ async function releer() {
     vistaPantalla = { zoom: d.zoom, x: d.pan_x, y: d.pan_y };
     if (d.pagina !== pagina) await irA(d.pagina, false);
     else if (privada == null) lienzo.setVista(vistaPantalla);
+    if (!esControl && datos.soy_dueno) mostrarPedido(d.pedido);
   } catch (err) {
     aviso(err.message, true);
   }
@@ -268,13 +286,14 @@ function arrancarProyector() {
   // Si el celular que controla se perdió o se quedó sin batería, desde aquí
   // se suelta para que entre otro.
   $("#btn-liberar").addEventListener("click", async () => {
-    if (!confirm("¿Liberar el control? El celular que controla la presentación deja de hacerlo y otro podrá entrar con el código.")) return;
+    if (!confirm("¿Liberar el control? El celular que controla la presentación deja de hacerlo y otro podrá entrar con el código. Si es de otra cuenta, pedirá el control y lo aceptas aquí.")) return;
     try {
       await sync.soltarControl();
       hayCelular(false);
-      aviso("Control liberado. Entra desde el otro celular con el código.");
+      aviso("Control liberado. Entra desde el otro celular con el código; si es de otra cuenta, aquí te va a pedir permiso.");
     } catch (err) { aviso(err.message || "No se pudo liberar el control"); }
   });
+  if (datos.soy_dueno) mostrarPedido(datos.pedido);
 
   $("#btn-completa").addEventListener("click", () => pantallaCompleta($("#caja")));
   $("#caja").addEventListener("dblclick", () => { if (document.fullscreenElement) document.exitFullscreen(); });
@@ -294,14 +313,58 @@ function hayCelular(si) {
   $("#btn-liberar").classList.toggle("oculto", !si || !datos.soy_dueno);
 }
 
+// Otra cuenta pide el control. Se arma con textContent: el nombre lo
+// escribió esa persona.
+function mostrarPedido(pedido) {
+  if (!pedido?.id) return;
+  const n = $("#aviso");
+  clearTimeout(aviso._t);
+  n.textContent = "";
+  const texto = document.createElement("span");
+  texto.textContent = `${pedido.nombre || "Alguien"} pide controlar la presentación. `;
+  const si = document.createElement("button");
+  si.type = "button";
+  si.className = "btn btn-primario btn-chico";
+  si.textContent = "Darle el control";
+  const no = document.createElement("button");
+  no.type = "button";
+  no.className = "btn btn-lineal btn-chico";
+  no.textContent = "No";
+  n.append(texto, si, " ", no);
+  n.classList.remove("oculto");
+  const responder = async (aceptar) => {
+    si.disabled = no.disabled = true;
+    try {
+      await sync.responderPedido(pedido.id, aceptar);
+      if (aceptar) {
+        hayCelular(false);
+        aviso(`Listo: ${pedido.nombre || "esa cuenta"} ya puede controlar. Para recuperarlo, toca «Liberar control».`);
+      } else n.classList.add("oculto");
+    } catch (err) { aviso(err.message || "No se pudo responder"); }
+  };
+  si.addEventListener("click", () => responder(true));
+  no.addEventListener("click", () => responder(false));
+}
+
 // --- Control (celular) -----------------------------------------------------
 
 // Un solo celular controla. Si otro ya lo tiene, éste espera (sin poder
 // quitárselo) y entra solo en cuanto el otro lo suelte.
-async function intentarControl() {
+function intentarControl() {
+  intentando ??= tomarOEsperar().finally(() => { intentando = null; });
+  return intentando;
+}
+
+async function tomarOEsperar() {
   try {
     await sync.tomarControl(false);
   } catch (err) {
+    // Otra cuenta que la PC todavía no autoriza: tiene que pedirlo.
+    if (err.code === "42501") {
+      esperando = true;
+      pedirUI(pedi ? null : "Esta presentación la abrió otra cuenta.");
+      return false;
+    }
     if (!String(err.message).startsWith("OCUPADO")) { fallo("No se pudo conectar el control", err.message); return false; }
     esperando = true;
     estado("Esperando", false);
@@ -311,12 +374,42 @@ async function intentarControl() {
     return false;
   }
   esperando = false;
+  pedi = false;
   $("#aviso").classList.add("oculto");
   sync.hola();
   estado("Controlando", true);
   $("#control").classList.remove("oculto");
   if (controlListo) aplicarPestana();
   return true;
+}
+
+// Celular de otra cuenta: «Pedir el control» y esperar a que la PC acepte.
+// Con `pedi` ya no ofrece el botón, sólo dice que espera.
+function pedirUI(motivo) {
+  estado("Esperando", false);
+  $("#control").classList.add("oculto");
+  lienzo.setEditable(false);
+  const n = $("#aviso");
+  clearTimeout(aviso._t);
+  n.textContent = "";
+  if (pedi) {
+    n.textContent = "Le pediste el control a la PC. En cuanto lo acepten, entras aquí.";
+  } else {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn btn-primario btn-chico";
+    b.textContent = "Pedir el control";
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      try {
+        await sync.pedirControl();
+        pedi = true;
+        pedirUI();
+      } catch (err) { b.disabled = false; aviso(err.message || "No se pudo pedir el control"); }
+    });
+    n.append(`${motivo || ""} Para controlarla desde aquí, pídele permiso a la PC. `, b);
+  }
+  n.classList.remove("oculto");
 }
 
 // Se perdió el control (lo liberó la PC, o pasaron horas sin señal y otro
@@ -362,11 +455,9 @@ async function salirPrivada() {
   aplicarPestana();
 }
 
+// Con otra cuenta también se entra: si la PC no la ha autorizado, el
+// celular ofrece «Pedir el control».
 async function arrancarControl() {
-  if (!datos.soy_dueno) {
-    return fallo("Esta presentación es de otra cuenta",
-      "Para controlarla, entra en tu celular con la misma cuenta con la que se abrió en la PC.");
-  }
   const ok = await intentarControl();
   if (!ok && !esperando) return;
   // Arranca en marcador amarillo: lo normal aquí es resaltar una frase del

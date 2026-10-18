@@ -353,6 +353,13 @@ LiveKit refleja el permiso técnico en caliente vía `permiso.js`.
     queda en «Esperando» y entra solo cuando el primero toca «Dejar el
     control» o la PC toca «Liberar control» (`tablero_soltar_control`; la
     cuenta dueña sin token suelta el de cualquiera).
+  - **Otra cuenta** (desde 2026-10-18, sólo presentación): su celular entra
+    con el código y toca «Pedir el control» (`tablero_pedir_control`). La PC
+    dueña ve «Fulano pide controlar… Darle el control / No»
+    (`tablero_responder_pedido`); aceptar la deja como `delegado_id` y suelta
+    el control que hubiera. «Liberar control» desde la PC o «Dejar el control»
+    del delegado le quitan la delegación (tiene que volver a pedirlo). No
+    basta el código porque se proyecta frente a todos.
   - En la **pizarra** sigue «Escribir desde aquí» (forzar).
   - Sólo vence tras **3 horas** sin latido. Antes eran 2 min y se caía con
     la pantalla del celular apagada: Android congela la pestaña y deja de
