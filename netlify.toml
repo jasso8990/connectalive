@@ -8,6 +8,13 @@
   node_bundler = "esbuild"
   external_node_modules = ["livekit-server-sdk", "@supabase/supabase-js"]
 
+# www.connectalive.smrt-app.org -> connectalive.smrt-app.org (va primero: la primera regla que coincide gana)
+[[redirects]]
+  from = "https://www.connectalive.smrt-app.org/*"
+  to = "https://connectalive.smrt-app.org/:splat"
+  status = 301
+  force = true
+
 # --- Rutas limpias ---
 [[redirects]]
   from = "/entrar"
