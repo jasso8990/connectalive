@@ -18,3 +18,8 @@ Front en HTML/JS plano · Supabase (auth, estado, realtime) · LiveKit
 (audio/video/pantalla) · Netlify (hosting + funciones serverless) · Stripe.
 
 Detalles del proyecto en `CLAUDE.md`.
+
+## Legal y pagos
+
+- Aviso de privacidad: `/privacidad` · Términos de uso: `/terminos`. Contacto: soporte@smrt-app.org.
+- Portal de Stripe propio, por el secreto `CL_PORTAL_CONFIG` (ver `CLAUDE.md` → «Legal y portal de Stripe»).

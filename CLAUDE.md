@@ -460,3 +460,16 @@ LiveKit refleja el permiso técnico en caliente vía `permiso.js`.
   `qa.alumno.connectalive@smrt-app.org` (sin plan). Contraseña en
   `.local/qa-user.md` (fuera de git). Creadas por SQL; no tienen perfil de
   Smartagent.
+
+## Legal y portal de Stripe (2026-11-02)
+
+- **`/privacidad` y `/terminos`** (`privacidad.html`, `terminos.html`, rutas en `netlify.toml`), enlazados en el pie
+  de la portada. Responsable «SMRT-APP (Juan Jasso)», contacto `soporte@smrt-app.org`. Si cambia lo que se guarda
+  (LiveKit, archivos, grabación), los planes o la regla de minutos, se cambia el texto Y la fecha.
+- **Portal propio de Stripe** `bpc_1UXMzF65kQ3Uqrs0S1FTkX3J` («ConnectaLive»): cambiar entre los 3 precios con
+  prorrateo, cancelar al final del periodo, razón de cancelación, términos y privacidad. `cl-portal-cliente` lo usa
+  por el secreto **`CL_PORTAL_CONFIG`**; sin el secreto cae al portal por defecto de la cuenta, que es el genérico
+  de SMRT-APP y **no deja cambiar de plan** (y el botón del panel dice «cambiar de plan»).
+- **Plan o precio nuevo** → agregarlo también a `features.subscription_update.products` de ese portal, o el
+  cliente no lo ve al cambiar de plan.
+- La cuenta de Stripe es una para todas las apps: nunca escoger un portal con `configurations.list()`.
