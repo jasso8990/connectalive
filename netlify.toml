@@ -51,6 +51,17 @@
   to = "/presentacion.html"
   status = 200
 
+# Aviso de privacidad y términos. Estas dos direcciones van en el portal de pagos de Stripe.
+[[redirects]]
+  from = "/privacidad"
+  to = "/privacidad.html"
+  status = 200
+
+[[redirects]]
+  from = "/terminos"
+  to = "/terminos.html"
+  status = 200
+
 # El código y las migraciones NO se sirven como página. Netlify publica la
 # carpeta entera; sin esto cualquiera podría bajar supabase/migrations/*.sql y
 # ver el mapa de las políticas RLS. No hay llaves adentro, pero no se regala.

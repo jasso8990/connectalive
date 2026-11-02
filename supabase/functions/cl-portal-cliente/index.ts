@@ -2,8 +2,10 @@
    cl-portal-cliente · abre el Customer Portal de Stripe (ConnectaLive)
    ------------------------------------------------------------
    Para que el titular cambie la tarjeta, cambie de plan (Stripe prorratea)
-   o cancele. Qué deja hacer el portal se configura en el panel de Stripe
-   (Settings → Billing → Customer portal), no aquí.
+   o cancele. Qué deja hacer el portal se configura en Stripe, no aquí.
+   El portal POR DEFECTO de la cuenta es el genérico de SMRT-APP y NO deja
+   cambiar de plan; el de ConnectaLive (sus 3 planes, sus términos) va por
+   id en el secreto `CL_PORTAL_CONFIG`. Sin el secreto, cae al genérico.
 
    ⚠️  EL NOMBRE LLEVA `cl-` A PROPÓSITO: los slugs de Edge Functions son
    únicos en TODO el proyecto de Supabase (compartido con Cancha `cn-*`,
@@ -55,6 +57,8 @@ Deno.serve(async (req) => {
 
     const body = new URLSearchParams();
     body.set("customer", customer);
+    const config = Deno.env.get("CL_PORTAL_CONFIG");
+    if (config) body.set("configuration", config);
     // Al volver se relee Stripe: si cambió de plan, el panel ya lo enseña.
     body.set("return_url", `${origenSeguro(req)}/panel?stripe=ok`);
 
